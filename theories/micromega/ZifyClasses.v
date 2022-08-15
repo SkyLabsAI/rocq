@@ -113,9 +113,9 @@ Class Saturate {T: Type} (Op : T -> T -> T) :=
           - [PRes]  is the pos-condition of (Op x y) *)
       PArg1 : T -> Prop;
       PArg2 : T -> Prop;
-      PRes  : T -> Prop;
+      PRes  : T -> T -> T -> Prop;
       (** [SatOk] states the correctness of the reasoning *)
-      SatOk : forall x y, PArg1 x -> PArg2 y -> PRes (Op x y)
+      SatOk : forall x y, PArg1 x -> PArg2 y -> PRes x y (Op x y)
     }.
 (* The [ZifyInst.saturate] iterates over all the instances
    and for every pattern of the form
