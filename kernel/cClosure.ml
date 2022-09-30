@@ -75,6 +75,7 @@ let with_stats c =
   end else
     Lazy.force c
 
+
 let all_opaque = TransparentState.empty
 
 module type RedFlagsSig = sig
@@ -355,6 +356,139 @@ let is_val v = match Mark.red_state v.mark with Ntrl -> true | Cstr | Whnf | Red
 
 let mk_atom c = {mark=mark Ntrl Unknown;term=FAtom c}
 let mk_red f = {mark=mark Red Unknown;term=f}
+
+(* let qualid_of_level ctx l = *)
+(*   match Univ.Level.name l with *)
+(*   | Some qid  -> *)
+(*     (try Some (Nametab.shortest_qualid_of_universe ctx qid) *)
+(*      with Not_found -> None) *)
+(*   | None -> None *)
+
+(* let prlev l = *)
+(*   let ctx = Id.Map.empty *)
+(*   match qualid_of_level ctx l with *)
+(*   | Some qid  -> Libnames.pr_qualid qid *)
+(*   | None -> Level.pr l *)
+
+let debug_print_arr (cs : constr array) =
+  str "[" ++
+  prvecti_with_sep (fun () -> str ",") (fun i c -> int i ++ str ": " ++ debug_print c) cs ++
+  str "]"
+
+let debug_print_branches (b : case_branch array) : Pp.t =
+  debug_print_arr (Array.map (fun (_env, branch) -> branch) b)
+
+let debug_lambda_assum types name ty =
+  str "(" ++ Names.Name.print name.binder_name ++ str " : " ++ types ty ++ str ")"
+
+(* let debug_named_assum types name ty = *)
+(*   str "(" ++ Names.Id.print name.binder_name ++ str " : " ++ types ty ++ str ")" *)
+
+(* let debug_named_decl types values (d : ('a, 'b) Context.Named.Declaration.pt) : Pp.t = *)
+(*   let open Pp in *)
+(*   match d with *)
+(*   | LocalAssum (name, ty) -> debug_named_assum types name ty *)
+(*   | LocalDef (name, v, ty) -> str "(" ++ Names.Id.print name.binder_name ++ str " : " ++ types ty ++ str " := " ++ values v ++ str ")" *)
+
+(* let debug_named_decls types values ds = *)
+(*   Context.Named.fold_outside (fun decl pp -> debug_named_decl types values decl ++ str " " ++ pp) ds ~init:(Pp.str "") *)
+
+let debug_table_key (c : table_key) : Pp.t =
+  let open Pp in
+  match c with
+  | Names.ConstKey c ->
+    str "ConstKey(" ++ debug_print (mkConstU c) ++ str ")"
+  | Names.RelKey i -> str "RelKey(<#" ++ int i ++ str ")"
+  | Names.VarKey v -> str "VarKey(" ++ Names.Id.print v ++ str ")"
+
+let rec debug_fterm (f : fterm) : Pp.t =
+  let open Pp in
+  match f with
+  | FRel i -> str "FRel(<#" ++ int i ++ str ">)"
+  | FAtom c -> str "FAtom(" ++ debug_print c ++ str ")"
+  | FFlex k -> str "FFlex(" ++ debug_table_key k ++ str ")"
+  | FInd ind -> str "FInd(" ++  debug_print (mkIndU ind) ++ str ")"
+  | FConstruct c -> str "Ftermuct(" ++ debug_print (mkConstructU c) ++ str ")"
+  | FApp (f, fs) ->
+    str "FApp(" ++ debug_fconstr f ++ str "," ++
+    debug_fterm_arr fs ++
+    str ")"
+  | FProj (proj, f) ->
+    str "FProj(" ++ Names.Projection.print proj ++ str "," ++ debug_fconstr f ++ str ")"
+  | FFix (fix, s) ->
+    str "FFix(" ++ debug_print (mkFix fix) ++ str "," ++ debug_fterm_subs s ++ str ")"
+  | FCoFix (fix, s) ->
+    str "FCofix(" ++ debug_print (mkCoFix fix) ++ str "," ++ debug_fterm_subs s ++ str ")"
+  | FCaseT (_ci, _univs, params, (_, ret), discriminant, branches, s) ->
+    str "FCaseT(_, " ++
+    (* Univ.Instance.pr prlev univs ++ str "," ++ *)
+    debug_print_arr params ++ str "," ++
+    debug_print ret ++ str "," ++
+    debug_fconstr discriminant ++ str "," ++
+    debug_print_branches branches ++ str "," ++
+    debug_fterm_subs s ++
+    str ")"
+  | FCaseInvert (_ci, _univs, params, (_, ret), _finvert, discriminant, branches, s) ->
+    (* TODO: print [_finvert] *)
+    str "FCaseInvert(_, " ++
+    (* Univ.Instance.pr prlev univs ++ str "," ++ *)
+    debug_print_arr params ++ str "," ++
+    debug_print ret ++ str "," ++
+    debug_fconstr discriminant ++ str "," ++
+    debug_print_branches branches ++ str "," ++
+    debug_fterm_subs s ++
+    str ")"
+  | FLambda (i, env, f, s) ->
+    str "FLambda(" ++
+    int i ++ str "," ++
+    List.fold_right (fun (binder, ty) pp -> debug_lambda_assum debug_print binder ty ++ pp) env (str "") ++ str "," ++
+    debug_print f ++ str "," ++
+    debug_fterm_subs s ++
+    str ")"
+  | FProd (binder, ty, body, s) ->
+    str "FProd(" ++
+    Names.Name.print binder.binder_name ++ str "," ++
+    debug_fconstr ty ++ str "," ++
+    debug_print body ++ str "," ++
+    debug_fterm_subs s ++
+    str ")"
+  | FLetIn (binder, ty, v, body, s) ->
+    str "FProd(" ++
+    Names.Name.print binder.binder_name ++ str "," ++
+    debug_fconstr ty ++ str "," ++
+    debug_fconstr v ++ str "," ++
+    debug_print body ++ str "," ++
+    debug_fterm_subs s ++
+    str ")"
+  | FLIFT (i, f) ->
+    str "FLIFT(" ++ int i ++ str "," ++ debug_fconstr f ++ str ")"
+  | FEvar (e, s) ->
+    str "FEvar(" ++ debug_print (mkEvar e) ++ str "," ++ debug_fterm_subs s ++ str ")"
+  | FInt _i -> Pp.str "UNSUPPORTED"
+  | FFloat _fl -> Pp.str "UNSUPPORTED"
+  | FArray (_univs, _arr, _ty) -> Pp.str "UNSUPPORTED"
+  | FCLOS (c, s) -> str "FCLOS(" ++ debug_print c ++ str "," ++ debug_fterm_subs s ++ str ")"
+  | FLOCKED -> Pp.str "UNSUPPORTED"
+
+and debug_fconstr (fc : fconstr) =
+  let open Pp in
+  str "fterm @ " ++ int (Obj.magic fc) ++ str " {" ++ debug_fterm (fc.term) ++ str "}"
+
+and debug_fterm_arr (fs : fconstr array) : Pp.t =
+  str "[" ++
+  prvecti_with_sep (fun () -> str ",") (fun i f -> int i ++ str ": " ++ debug_fconstr f) fs ++
+  str "]"
+
+and debug_fterm_subs s =
+  let (s, k) = Esubst.Internal.repr s in
+  let sep () = str ";" ++ spc () in
+  let pr = function
+    | Esubst.Internal.REL n -> str "Rel(<#" ++ int n ++ str ">)"
+    | Esubst.Internal.VAL (k, x) -> str "VAL(" ++ int k ++ str "," ++ debug_fconstr x ++ str ")"
+  in
+  str "[" ++ prlist_with_sep sep pr s ++ str "| " ++ int k ++ str "]"
+
+
 
 (* Could issue a warning if no is still Red, pointing out that we loose
    sharing. *)
@@ -1325,6 +1459,7 @@ module FredNative = RedNative(FNativeEntries)
    constructor, cofix, letin, constant), or a neutral term (product,
    inductive) *)
 let rec knh info m stk =
+  (if !Whd_debug.profile then Feedback.msg_debug (debug_fconstr m));
   match m.term with
     | FLIFT(k,a) -> knh info a (zshift k stk)
     | FCLOS(t,e) -> knht info e t (zupdate info m stk)
@@ -1347,6 +1482,7 @@ let rec knh info m stk =
 
 (* The same for pure terms *)
 and knht info e t stk =
+  (if !Whd_debug.profile then Feedback.msg_debug (debug_print t));
   match kind t with
     | App(a,b) ->
         knht info e a (append_stack (mk_clos_vect e b) stk)

@@ -64,7 +64,8 @@ let get_flags () =
   in
   let all = pp_flag "all" !all_flag in
   let bt = pp_flag "backtrace" (Printexc.backtrace_status()) in
-  String.concat "," (all::bt::flags)
+  let whd = pp_flag "whd" (!Whd_debug.profile) in
+  String.concat "," (all::bt::whd::flags)
 
 exception Error
 
@@ -85,6 +86,7 @@ let set_flags s = match parse_flags s with
     let set_one_flag (name,b) = match name with
       | "all" -> set_debug_all b
       | "backtrace" -> set_debug_backtrace b
+      | "whd" -> Whd_debug.profile := b
       | _ -> match CString.Map.find_opt name !debug with
         | None -> warn_unknown_debug name
         | Some flag -> flag := b
