@@ -64,8 +64,11 @@ let get_flags () =
   in
   let all = pp_flag "all" !all_flag in
   let bt = pp_flag "backtrace" (Printexc.backtrace_status()) in
-  let whd = pp_flag "whd" (!Whd_debug.profile) in
-  String.concat "," (all::bt::whd::flags)
+  let whd = pp_flag "whd" (!Whd_debug.profile).Whd_debug.Profile.whd in
+  let ccnv = pp_flag "ccnv" (!Whd_debug.profile).Whd_debug.Profile.ccnv in
+  let gen_conv = pp_flag "gen_conv" (!Whd_debug.profile).Whd_debug.Profile.gen_conv in
+  let eqappr = pp_flag "eqappr" (!Whd_debug.profile).Whd_debug.Profile.eqappr in
+  String.concat "," (all::bt::whd::ccnv::gen_conv::eqappr::flags)
 
 exception Error
 
@@ -83,10 +86,16 @@ let parse_flags s =
 let set_flags s = match parse_flags s with
   | None -> CErrors.user_err Pp.(str "Syntax error in debug flags.")
   | Some flags ->
-    let set_one_flag (name,b) = match name with
+    let open Whd_debug.Profile in
+    let set_one_flag (name,b) =
+      let profile = !Whd_debug.profile in
+      match name with
       | "all" -> set_debug_all b
       | "backtrace" -> set_debug_backtrace b
-      | "whd" -> Whd_debug.profile := b
+      | "whd" -> let whd = b in Whd_debug.profile := { profile with whd }
+      | "ccnv" -> let ccnv = b in Whd_debug.profile := { profile with ccnv }
+      | "gen_conv" -> let gen_conv = b in Whd_debug.profile := { profile with gen_conv }
+      | "eqappr" -> let eqappr = b in Whd_debug.profile := { profile with eqappr }
       | _ -> match CString.Map.find_opt name !debug with
         | None -> warn_unknown_debug name
         | Some flag -> flag := b

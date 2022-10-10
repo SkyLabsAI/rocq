@@ -1459,7 +1459,7 @@ module FredNative = RedNative(FNativeEntries)
    constructor, cofix, letin, constant), or a neutral term (product,
    inductive) *)
 let rec knh info m stk =
-  (if !Whd_debug.profile then Feedback.msg_debug (debug_fconstr m));
+  (if (!Whd_debug.profile).Whd_debug.Profile.whd then let open Pp in Feedback.msg_debug (str "knh term: " ++ debug_fconstr m));
   match m.term with
     | FLIFT(k,a) -> knh info a (zshift k stk)
     | FCLOS(t,e) -> knht info e t (zupdate info m stk)
@@ -1482,7 +1482,7 @@ let rec knh info m stk =
 
 (* The same for pure terms *)
 and knht info e t stk =
-  (if !Whd_debug.profile then Feedback.msg_debug (debug_print t));
+  (if (!Whd_debug.profile).Whd_debug.Profile.whd then let open Pp in Feedback.msg_debug (str "knht term: " ++ debug_print t));
   match kind t with
     | App(a,b) ->
         knht info e a (append_stack (mk_clos_vect e b) stk)

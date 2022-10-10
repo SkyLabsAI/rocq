@@ -368,12 +368,23 @@ let esubst_of_rel_context_instance_list ctx u args e =
 
 (* Conversion between  [lft1]term1 and [lft2]term2 *)
 let rec ccnv cv_pb l2r infos lft1 lft2 term1 term2 cuniv =
+  (if (!Whd_debug.profile).Whd_debug.Profile.ccnv then
+     let open Pp in
+     Feedback.msg_debug (str "ccnv term1: " ++ debug_fconstr term1);
+     Feedback.msg_debug (str "ccnv term2: " ++ debug_fconstr term2)
+  );
   try eqappr cv_pb l2r infos (lft1, (term1,[])) (lft2, (term2,[])) cuniv
   with NotConvertible when is_irrelevant infos lft1 term1 && is_irrelevant infos lft2 term2 -> cuniv
 
 (* Conversion between [lft1](hd1 v1) and [lft2](hd2 v2) *)
 and eqappr cv_pb l2r infos (lft1,st1) (lft2,st2) cuniv =
   Control.check_for_interrupt ();
+  (if (!Whd_debug.profile).Whd_debug.Profile.eqappr then
+     let open Pp in
+     Feedback.msg_debug (str "eqappr term1: " ++ debug_fconstr (fst st1));
+     Feedback.msg_debug (str "eqappr term2: " ++ debug_fconstr (fst st2))
+  );
+
   (* First head reduce both terms *)
   let ninfos = infos_with_reds infos.cnv_inf betaiotazeta in
   let (hd1, v1 as appr1) = whd_stack ninfos infos.lft_tab (fst st1) (snd st1) in
@@ -920,6 +931,11 @@ let inferred_universes : (UGraph.t * Univ.Constraints.t) universe_compare =
     compare_cumul_instances = infer_inductive_instances; }
 
 let gen_conv cv_pb ?(l2r=false) ?(reds=TransparentState.full) env ?(evars=(fun _ -> None)) t1 t2 =
+  (if (!Whd_debug.profile).Whd_debug.Profile.gen_conv then
+     let open Pp in
+     Feedback.msg_debug (str "gen_conv term1: " ++ debug_print t1);
+     Feedback.msg_debug (str "gen_conv term2: " ++ debug_print t2)
+  );
   let univs = Environ.universes env in
   let b =
     if cv_pb = CUMUL then leq_constr_univs univs t1 t2

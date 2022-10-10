@@ -250,3 +250,5 @@ val term_of_process : fconstr -> stack -> constr
 val to_constr : lift -> fconstr -> constr
 
 (** End of cbn debug section i*)
+
+val debug_fconstr : fconstr -> Pp.t
