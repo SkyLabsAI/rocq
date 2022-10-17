@@ -183,6 +183,10 @@ let rec check_empty_stack = function
 | CClosure.Zupdate _ :: s -> check_empty_stack s
 | _ -> false
 
+let use_copy = fun () -> false
+(*  let open Goptions in
+    declare_bool_option_and_ref ~depr:false ~key:["Share";"Reduction"] ~value:false *)
+
 let type_of_apply env func funt argsv (argstv : CClosure.fconstr array) =
   let open CClosure in
   let len = Array.length argsv in
@@ -204,13 +208,15 @@ let type_of_apply env func funt argsv (argstv : CClosure.fconstr array) =
            some of the sharing that exists in [c1]. This would require a
            [copy_fconstr] function.
          *)
-        let ee =
-          let ctx = CClosure.make_fconstr_ctx () in
-          Esubst.subs_map (CClosure.copy_fconstr ~ctx) (fst e), snd e
+        let ee, f2 =
+          if use_copy () then
+            let ctx = CClosure.make_fconstr_ctx () in
+            (Esubst.subs_map (CClosure.copy_fconstr ~ctx) (fst e), snd e), Some c1
+          else e, None
         in
         let c_argt = term_of_fconstr argt in
         let c_c1 = term_of_fconstr c1 in
-        begin match conv_leq env ~f1:argt ~f2:c1 c_argt c_c1 with
+        begin match conv_leq env ~f1:argt ?f2:f2 c_argt c_c1 with
         | () -> apply_rec (i+1) (mk_clos (CClosure.usubs_cons (inject arg) ee) c2)
         | exception NotConvertible ->
           error_cant_apply_bad_type env
