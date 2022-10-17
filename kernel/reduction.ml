@@ -187,12 +187,10 @@ let whd_allnolet env t =
 type 'a kernel_conversion_function = env -> 'a -> 'a -> unit
 
 (* functions of this type can be called from outside the kernel *)
-type ('l,'r) extended_conversion_function_2 =
+type 'a extended_conversion_function =
   ?l2r:bool -> ?reds:TransparentState.t -> env ->
-  ?evars:constr evar_handler ->
-  'l -> 'r -> unit
-
-type 'a extended_conversion_function = ('a,'a) extended_conversion_function_2
+  ?evars:constr evar_handler -> ?f1:fconstr -> ?f2:fconstr ->
+  'a -> 'a -> unit
 
 exception NotConvertible
 
@@ -909,7 +907,7 @@ let () =
   in
   CClosure.set_conv conv
 
-let gen_conv cv_pb ?(l2r=false) ?(reds=TransparentState.full) env ?(evars=default_evar_handler) t1 t2 =
+let gen_conv cv_pb ?(l2r=false) ?(reds=TransparentState.full) env ?(evars=default_evar_handler) ?f1 ?f2 t1 t2 =
   let univs = Environ.universes env in
   let b =
     if cv_pb = CUMUL then leq_constr_univs univs t1 t2
@@ -917,28 +915,17 @@ let gen_conv cv_pb ?(l2r=false) ?(reds=TransparentState.full) env ?(evars=defaul
   in
     if b then ()
     else
-      let _ = clos_gen_conv reds cv_pb l2r evars env univs (univs, checked_universes) (inject t1) (inject t2) in
+      let inject_or_get t = function
+        | None -> inject t
+        | Some f -> f
+      in
+      let f1 = inject_or_get t1 f1 in
+      let f2 = inject_or_get t2 f2 in
+      let _ = clos_gen_conv reds cv_pb l2r evars env univs (univs, checked_universes) f1 f2 in
         ()
 
 let conv = gen_conv CONV
 let conv_leq = gen_conv CUMUL
-
-
-let gen_conv_fconstr cv_pb ?(l2r=false) ?(reds=TransparentState.full) env ?(evars=default_evar_handler) t1 t2 =
-  let univs = Environ.universes env in
-  let _ = clos_gen_conv reds cv_pb l2r evars env univs (univs, checked_universes) t1 (inject t2) in
-  ()
-
-let conv_fconstr = gen_conv_fconstr CONV
-let conv_leq_fconstr = gen_conv_fconstr CUMUL
-
-let gen_conv_fconstr2 cv_pb ?(l2r=false) ?(reds=TransparentState.full) env ?(evars=default_evar_handler) t1 t2 =
-  let univs = Environ.universes env in
-  let _ = clos_gen_conv reds cv_pb l2r evars env univs (univs, checked_universes) t1 t2 in
-  ()
-
-(* let conv_fconstr2 = gen_conv_fconstr2 CONV *)
-let conv_leq_fconstr2 = gen_conv_fconstr2 CUMUL
 
 let generic_conv cv_pb ~l2r evars reds env univs t1 t2 =
   let graph = Environ.universes env in

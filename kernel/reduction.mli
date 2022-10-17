@@ -31,12 +31,10 @@ exception NotConvertible
 
 type 'a kernel_conversion_function = env -> 'a -> 'a -> unit
 
-type ('l,'r) extended_conversion_function_2 =
+type 'a extended_conversion_function =
   ?l2r:bool -> ?reds:TransparentState.t -> env ->
-  ?evars:constr evar_handler ->
-  'l -> 'r -> unit
-
-type 'a extended_conversion_function = ('a,'a) extended_conversion_function_2
+  ?evars:constr evar_handler -> ?f1:fconstr -> ?f2:fconstr ->
+  'a -> 'a -> unit
 
 type conv_pb = CONV | CUMUL
 
@@ -73,11 +71,8 @@ val checked_universes : UGraph.t universe_compare
 
 (** These two functions can only raise NotConvertible *)
 val conv : constr extended_conversion_function
-val conv_fconstr : (fconstr, types) extended_conversion_function_2
 
 val conv_leq : types extended_conversion_function
-val conv_leq_fconstr : (fconstr, types) extended_conversion_function_2
-val conv_leq_fconstr2 : (fconstr, fconstr) extended_conversion_function_2
 
 
 

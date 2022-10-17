@@ -1040,13 +1040,13 @@ let report_anomaly (e, info) =
   in
   Exninfo.iraise (e, info)
 
-let f_conv ?l2r ?reds env ?evars x y =
+let f_conv ?l2r ?reds env ?evars ?f1 ?f2 x y =
   let inj = EConstr.Unsafe.to_constr in
-  Reduction.conv ?l2r ?reds env ?evars (inj x) (inj y)
+  Reduction.conv ?l2r ?reds env ?evars ?f1 ?f2 (inj x) (inj y)
 
-let f_conv_leq ?l2r ?reds env ?evars x y =
+let f_conv_leq ?l2r ?reds env ?evars ?f1 ?f2 x y =
   let inj = EConstr.Unsafe.to_constr in
-  Reduction.conv_leq ?l2r ?reds env ?evars (inj x) (inj y)
+  Reduction.conv_leq ?l2r ?reds env ?evars ?f1 ?f2 (inj x) (inj y)
 
 let test_trans_conversion (f: constr Reduction.extended_conversion_function) reds env sigma x y =
   try
