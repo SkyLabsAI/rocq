@@ -203,17 +203,18 @@ let type_of_apply env func funt argsv (argstv : CClosure.fconstr array) =
            to [constr] and back, but it would be nicer if we could retain
            some of the sharing that exists in [c1]. This would require a
            [copy_fconstr] function.
-
-           Revision: It looks like we only need to copy what ends up in [e]?
-           Not necessary to copy anything else
          *)
+        let ee =
+          let ctx = CClosure.make_fconstr_ctx () in
+          Esubst.subs_map (CClosure.copy_fconstr ~ctx) (fst e), snd e
+        in
         let c_argt = term_of_fconstr argt in
-        let c1 = term_of_fconstr c1 in
-        begin match conv_leq env ~f1:argt c_argt c1 with
-        | () -> apply_rec (i+1) (mk_clos (CClosure.usubs_cons (inject arg) e) c2)
+        let c_c1 = term_of_fconstr c1 in
+        begin match conv_leq env ~f1:argt ~f2:c1 c_argt c_c1 with
+        | () -> apply_rec (i+1) (mk_clos (CClosure.usubs_cons (inject arg) ee) c2)
         | exception NotConvertible ->
           error_cant_apply_bad_type env
-            (i+1,c1,c_argt)
+            (i+1,c_c1,c_argt)
             (make_judge func (CClosure.term_of_fconstr funt))
             (make_judgev_fconstr argsv argstv)
         end

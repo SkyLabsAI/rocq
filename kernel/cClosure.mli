@@ -90,6 +90,10 @@ type fconstr
 (** [fconstr] can be accessed by using the function [fterm_of] and by
    matching on type [fterm] *)
 
+type fconstr_ctx
+val make_fconstr_ctx : unit -> fconstr_ctx
+val copy_fconstr : ?ctx:fconstr_ctx -> fconstr -> fconstr
+
 type finvert
 
 type 'a usubs = 'a subs Univ.puniverses
