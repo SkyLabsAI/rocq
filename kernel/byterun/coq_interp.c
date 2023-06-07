@@ -1944,6 +1944,16 @@ value coq_interprete
         Next;
       }
 
+      Instruct(PRINT) {
+        // print a character and then return the result
+        print_instr("PRINT");
+        accu = sp[1];
+        // TODO: print [sp[0]]
+        sp += 2;
+        pc++;
+        Next;
+      }
+
 /* Debugging and machine control */
 
       Instruct(STOP){

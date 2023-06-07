@@ -390,6 +390,10 @@ struct
     | Arraylength ->
       let t = get_parray evd args 1 in
       E.mkInt env (Parray.length t)
+    | Print -> (* forall T U, T -> U -> U *)
+      let num = get_int evd args 1 in
+      Feedback.msg_info Pp.(str "debug " ++ str (Uint63.to_string num)) ;
+      E.get args 2
 
   let red_prim env evd p u args =
     try

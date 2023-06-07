@@ -64,6 +64,7 @@ type t =
   | Arrayset
   | Arraycopy
   | Arraylength
+  | Print
 
 (** Can raise [Not_found].
     Beware that this is not exactly the reverse of [to_string] below. *)

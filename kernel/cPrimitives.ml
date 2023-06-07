@@ -69,6 +69,7 @@ type t =
   | Arrayset
   | Arraycopy
   | Arraylength
+  | Print
 
 let parse = function
   | "int63_head0" -> Int63head0
@@ -126,6 +127,7 @@ let parse = function
   | "array_set" -> Arrayset
   | "array_length" -> Arraylength
   | "array_copy" -> Arraycopy
+  | "debug_print" -> Print
   | _ -> raise Not_found
 
 let equal (p1 : t) (p2 : t) =
@@ -187,6 +189,7 @@ let hash = function
   | Int63asr -> 53
   | Int63compares -> 54
   | Float64equal -> 55
+  | Print -> 56
 
 (* Should match names in nativevalues.ml *)
 let to_string = function
@@ -245,6 +248,7 @@ let to_string = function
   | Arrayset -> "arrayset"
   | Arraycopy -> "arraycopy"
   | Arraylength -> "arraylength"
+  | Print -> "debug_print"
 
 type const =
   | Arraymaxlength
@@ -350,6 +354,8 @@ let types =
       [array_ty], array_ty
   | Arraylength ->
       [array_ty], int_ty
+  | Print -> (* forall T, int63.t -> T -> T *)
+      [int_ty; PITT_param 1], PITT_param 1
 
 let one_param =
   (* currently if there's a parameter it's always this *)
@@ -415,6 +421,8 @@ let params = function
   | Arraycopy
   | Arraylength -> one_param
 
+  | Print -> one_param
+
 let nparams x = List.length (params x)
 
 let univs = function
@@ -474,6 +482,8 @@ let univs = function
   | Arrayset
   | Arraycopy
   | Arraylength -> one_univ
+
+  | Print -> one_univ
 
 type arg_kind =
   | Kparam (* not needed for the evaluation of the primitive when it reduces *)
