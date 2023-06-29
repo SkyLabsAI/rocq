@@ -40,6 +40,12 @@ let { Goptions.get = typeclasses_unique } =
     ~value:false
     ()
 
+let { Goptions.get = typeclasses_really_unique } =
+  Goptions.declare_bool_option_and_ref
+    ~key:["Typeclasses";"Really";"Unique";"Instances"]
+    ~value:false
+    ()
+
 let interp_fields_evars env sigma ~ninds ~nparams impls_env nots l =
   let _, sigma, impls, newfs, _ =
     List.fold_left2
@@ -926,6 +932,7 @@ let declare_class ~univs params inds def data =
         cl_impl = impl;
         cl_strict = typeclasses_strict ();
         cl_unique = typeclasses_unique ();
+        cl_really_unique = typeclasses_really_unique ();
         cl_context = params;
         cl_props = fields;
         cl_projs = projs }
@@ -948,7 +955,8 @@ let add_constant_class cst =
       cl_props = [LocalAssum (make_annot Anonymous r, t)];
       cl_projs = [];
       cl_strict = typeclasses_strict ();
-      cl_unique = typeclasses_unique ()
+      cl_unique = typeclasses_unique ();
+      cl_really_unique = typeclasses_really_unique ()
     }
   in
   Classes.add_class tc;
@@ -970,7 +978,8 @@ let add_inductive_class ind =
         cl_props = [LocalAssum (make_annot Anonymous r, ty)];
         cl_projs = [];
         cl_strict = typeclasses_strict ();
-        cl_unique = typeclasses_unique () }
+        cl_unique = typeclasses_unique ();
+        cl_really_unique = typeclasses_really_unique () }
   in
   Classes.add_class k
 

@@ -82,3 +82,32 @@ Module BacktrackGreenCut.
 
 
 End BacktrackGreenCut.
+
+
+Module ReallyUniqueInstances.
+
+  Set Typeclasses Really Unique Instances.
+  (* Really unique *)
+  Class R (b : bool).
+  Unset Typeclasses Really Unique Instances.
+
+  Class Fail (b: bool).
+
+  #[local] Instance Rt : R true  | 0 := Build_R true.
+  #[local] Instance Rf : R false | 1 := Build_R false.
+
+  #[local] Hint Extern 0 (Fail ?b) => unify b false; constructor : typeclass_instances.
+
+  Variable foo : forall b, R b -> Fail b -> True.
+
+  Goal True.
+    (* [Rt] is picked first. This leads to [Fail true] which will fail.
+       If we were allowed to backtrack to [Rf], [Fail false] would
+       succeed and the line below would succeed as well.
+       Since [R] has really unique instances we will not backtrack to [Rf].
+    *)
+    Fail apply (foo _ _ _).
+  Abort.
+
+
+End ReallyUniqueInstances.
