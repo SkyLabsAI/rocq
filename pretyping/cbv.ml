@@ -229,9 +229,13 @@ module VNativeEntries =
     type elem = cbv_value
     type args = cbv_value array
     type evd = unit
+    type lazy_info = unit
     type uinstance = Univ.Instance.t
 
     let get = Array.get
+    let set arr i e =
+      let arr = Array.copy arr in
+      Array.set arr i e; arr
 
     let get_int () e =
       match e with
@@ -253,6 +257,9 @@ module VNativeEntries =
       match e with
       | ARRAY(_u,t,_ty) -> t
       | _ -> raise Primred.NativeDestKO
+
+    let get_blocked env () e =
+      ignore (env, e); assert false (* TODO *)
 
     let mkInt env i = VAL(0, mkInt i)
 
@@ -356,6 +363,16 @@ module VNativeEntries =
 
     let mkArray env u t ty =
       ARRAY (u,t,ty)
+
+    let eval_full_lazy lazy_info t =
+      ignore (lazy_info, t); assert false (* TODO *)
+
+    let eval_id_lazy lazy_info t =
+      ignore (lazy_info, t); assert false (* TODO *)
+
+    let mkApp t args =
+      ignore (t, args); assert false (* TODO *)
+
   end
 
 module VredNative = RedNative(VNativeEntries)
@@ -638,12 +655,12 @@ and cbv_stack_value info env = function
       begin match List.chop nargs appl with
       | (args, appl) ->
         let stk = if List.is_empty appl then stk else stack_app appl stk in
-        begin match VredNative.red_prim info.env () op u (Array.of_list args) with
-        | Some (CONSTR (c, args)) ->
+        begin match VredNative.red_prim info.env () () op u (Array.of_list args) with
+        | VredNative.Result (CONSTR (c, args)) ->
           (* args must be moved to the stack to allow future reductions *)
           cbv_stack_value info env (CONSTR(c, [||]), stack_vect_app args stk)
-        | Some v ->  cbv_stack_value info env (v,stk)
-        | None -> mkSTACK(PRIMITIVE(op,c,Array.of_list args), stk)
+        | VredNative.Result v ->  cbv_stack_value info env (v,stk)
+        | _ -> mkSTACK(PRIMITIVE(op,c,Array.of_list args), stk)
         end
       | exception Failure _ ->
         (* partial application *)

@@ -45,7 +45,7 @@ val ppconstr : Constr.t -> unit (* by Termops printer *)
 val ppconstr_univ : Constr.t -> unit
 
 val pp_constr_parray : Constr.t Parray.t -> unit
-val pp_fconstr_parray : CClosure.fconstr Parray.t -> unit
+(* val pp_fconstr_parray : CClosure.fconstr Parray.t -> unit *)
 
 (* Extern as type *)
 val pptype : Constr.types -> unit
@@ -54,8 +54,8 @@ val ppeconstr : EConstr.constr -> unit (* Termops printer *)
 val ppconstr_expr : Constrexpr.constr_expr -> unit
 val ppglob_constr : 'a Glob_term.glob_constr_g -> unit
 val pppattern : Pattern.constr_pattern -> unit
-val ppfconstr : CClosure.fconstr -> unit
-val ppfsubst : CClosure.fconstr Esubst.subs -> unit
+(* val ppfconstr : CClosure.fconstr -> unit *)
+(* val ppfsubst : CClosure.fconstr Esubst.subs -> unit *)
 
 val ppnumtokunsigned : NumTok.Unsigned.t -> unit
 val ppnumtokunsignednat : NumTok.UnsignedNat.t -> unit
