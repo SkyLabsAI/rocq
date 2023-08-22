@@ -322,7 +322,11 @@ let () = define_prim2 "tac_cbn" red_flags clause begin fun flags cl ->
 end
 
 let () = define_prim2 "tac_lazy" red_flags clause begin fun flags cl ->
-  Tac2tactics.lazy_ flags cl
+  Tac2tactics.lazy_ true flags cl
+end
+
+let () = define_prim2 "tac_lazy_whnf" red_flags clause begin fun flags cl ->
+  Tac2tactics.lazy_ false flags cl
 end
 
 let () = define_prim2 "tac_unfold" (list reference_with_occs) clause begin fun refs cl ->
@@ -382,7 +386,11 @@ let () = define_red2 "eval_cbn" red_flags constr begin fun flags c ->
 end
 
 let () = define_red2 "eval_lazy" red_flags constr begin fun flags c ->
-  Tac2tactics.eval_lazy flags c
+  Tac2tactics.eval_lazy true flags c
+end
+
+let () = define_red2 "eval_lazy_whnf" red_flags constr begin fun flags c ->
+  Tac2tactics.eval_lazy false flags c
 end
 
 let () = define_red2 "eval_unfold" (list reference_with_occs) constr begin fun refs c ->
