@@ -34,6 +34,8 @@ open Vars
 
 module RelDecl = Context.Rel.Declaration
 
+let debug = try let _ = Sys.getenv "NODEBUG" in false with _ -> true
+
 let all_opaque = TransparentState.empty
 
 module type RedFlagsSig = sig
@@ -352,31 +354,57 @@ let table_key_to_string k =
   | Names.VarKey i -> Printf.sprintf "\"var:%s\"" (Names.Id.to_string i)
   | Names.RelKey i -> Printf.sprintf "\"rel:%i\"" i
 
+let constr_to_string c = Pp.string_of_ppcmds (Constr.debug_print c)
+
 let [@ocaml.warning "-32"] rec to_string (c : fconstr) : string =
-  match c.term with
+  (match c.mark with
+   | Ntrl -> "{mark=Ntrl; term="
+   | Cstr -> "{mark=Cstr; term="
+   | Red -> "{mark=Red; term="
+  )
+  ^
+  (match c.term with
   | FRel i -> Printf.sprintf "FRel %i" i
-  | FAtom c -> Printf.sprintf "FAtom (%s)" (Pp.string_of_ppcmds (Constr.debug_print c))
+  | FAtom c -> Printf.sprintf "FAtom (%s)" (constr_to_string c)
   | FFlex k -> Printf.sprintf "FFlex %s" (table_key_to_string k)
   | FInd _ -> Printf.sprintf "FInd _"
   | FConstruct (((i,n),m),_) -> Printf.sprintf "FConstruct (%s,%i,%i)" (Names.MutInd.to_string i) n m
   | FApp (h, args) -> Printf.sprintf "FApp (%s, [|%s|])" (to_string h) (String.concat ";" (Array.to_list (Array.map to_string args)))
   | FProj (_, c) -> Printf.sprintf "FProj (_, %s)" (to_string c)
-  | FFix (_, _) -> Printf.sprintf "FFix (_, _)"
+  | FFix (_, u) -> Printf.sprintf "FFix (_, %s)" (usubs_to_string u)
   | FCoFix (_, _) -> Printf.sprintf "FCoFix (_, _)"
-  | FCaseT (_, _, _, _, _, _, _) -> Printf.sprintf "FCaseT (_, _, _, _, _, _, _)"
+  | FCaseT (_, _, xs, _, t, bs, u) ->
+    Printf.sprintf "FCaseT (_, _, [| %s |], _, %s, [| %s |], %s)"
+      (String.concat "; " (Array.to_list (Array.map constr_to_string xs)))
+      (to_string t)
+      (String.concat "; " (Array.to_list (Array.map (fun (_, c) -> constr_to_string c) bs)))
+      (usubs_to_string u)
   | FCaseInvert (_, _, _, _, _, _, _, _) -> Printf.sprintf "FCaseInvert (_, _, _, _, _, _, _, _)"
-  | FLambda (_, _, _, _) -> Printf.sprintf "FLambda (_, _, _, _)"
-  | FProd (_, _, _, _) -> Printf.sprintf "FProd (_, _, _, _)"
-  | FLetIn (_, _, _, _, _) -> Printf.sprintf "FLetIn (_, _, _, _, _)"
+  | FLambda (_, _, b, u) -> Printf.sprintf "FLambda (_, _, %s, %s)" (constr_to_string b) (usubs_to_string u)
+  | FProd (_, _, b, u) -> Printf.sprintf "FProd (_, _, %s, %s)" (constr_to_string b) (usubs_to_string u)
+  | FLetIn (_, a, b, c, u) -> Printf.sprintf "FLetIn (_, %s, %s, %s, %s)" (to_string a) (to_string b) (constr_to_string c) (usubs_to_string u)
   | FEvar (_, _, _, _) -> Printf.sprintf "FEvar (_, _, _, _)"
   | FInt _ -> Printf.sprintf "FInt _"
   | FFloat _ -> Printf.sprintf "FFloat _"
   | FArray (_, _, _) -> Printf.sprintf "FArray (_, _, _)"
   | FLIFT (i, c) -> Printf.sprintf "FLIFT (%i, %s)" i (to_string c)
-  | FCLOS (c, _) -> Printf.sprintf "FCLOS (%s, _)" (Pp.string_of_ppcmds (Constr.debug_print c))
+  | FCLOS (c, u) -> Printf.sprintf "FCLOS (%s, %s)" (constr_to_string c) (usubs_to_string u)
   | FIrrelevant -> Printf.sprintf "FIrrelevant"
   | FLOCKED -> Printf.sprintf "FLOCKED"
   | FPrimitive (p, _, _, args) -> Printf.sprintf "FPrimitive (%s, _, _, [|%s|])" (CPrimitives.to_string p) (String.concat ";" (Array.to_list (Array.map to_string args)))
+  )
+  ^ "}"
+
+and [@ocaml.warning "-32"] usubs_to_string (u : usubs) =
+  let (ls, i) = Esubst.Internal.repr (fst u) in
+  let aux v =
+    let open Esubst.Internal in
+    match v with
+    | REL i -> Printf.sprintf "REL(%i)" i
+    | VAL (i, (o, c)) ->
+      Printf.sprintf "VAL(%i,(%s,%s))" i (if Option.has_some o then "Some _" else "None") (to_string c)
+  in
+  String.concat " :: " (List.map aux ls) ^ (Printf.sprintf " :: [] @ %i" i)
 
 let [@ocaml.warning "-32"] stack_to_string s =
   let member_to_string m =
@@ -439,10 +467,18 @@ let lift_fconstr_vect k v =
 
 let clos_rel ((e, _) : usubs) i =
   match Esubst.expand_rel i e with
-    | Inl(n,(None,mt)) -> lift_fconstr n mt
-    | Inl(n,(Some f,mt)) -> lift_fconstr n (f mt)
-    | Inr(k,None) -> {mark=Ntrl; term= FRel k}
+    | Inl(n,(None,mt)) ->
+      Printf.printf "clos_rel: Inl(%i, (None, %s))\n%!" n (to_string mt);
+      lift_fconstr n mt
+    | Inl(n,(Some f,mt)) ->
+      let res = f mt in
+      Printf.printf "clos_rel: Inl(%i, (Some(_), %s)) -> %s\n%!" n (to_string mt) (to_string res);
+      lift_fconstr n res
+    | Inr(k,None) ->
+      Printf.printf "clos_rel: Inr(%i, None)\n%!" k;
+      {mark=Ntrl; term= FRel k}
     | Inr(k,Some p) ->
+      Printf.printf "clos_rel: Inr(%i, Some(%i))\n%!" k p;
         lift_fconstr (k-p) {mark=Red;term=FFlex(RelKey p)}
 
 (* since the head may be reducible, we might introduce lifts of 0 *)
@@ -560,10 +596,20 @@ let constant_value_in u = function
 | Undef _ -> raise (NotEvaluableConst NoBody)
 | Primitive p -> raise (NotEvaluableConst (IsPrimitive (u,p)))
 
+
+let def_to_string d =
+  match d with
+  | Def v -> Printf.sprintf "Def(%s)" (to_string v)
+  | Primitive op -> Printf.sprintf "Primitive(%s)" (CPrimitives.to_string op)
+  | Undef _ -> Printf.sprintf "Undef(_)"
+  | OpaqueDef _ -> Printf.sprintf "OpaqueDef(_)"
+
 let ref_value_cache info flags tab ref =
   let env = info.i_cache.i_env in
   try
-    KeyTable.find tab ref
+    let res = KeyTable.find tab ref in
+    if debug then Printf.printf "Cache hit: %s -> %s\n%!" (table_key_to_string ref) (def_to_string res);
+    res
   with Not_found ->
     let v =
       try
@@ -602,7 +648,9 @@ let ref_value_cache info flags tab ref =
       | NotEvaluableConst _ (* Const *)
         -> Undef None
     in
-    KeyTable.add tab ref v; v
+    KeyTable.add tab ref v;
+    if debug then Printf.printf "Cache miss: %s -> %s\n%!" (table_key_to_string ref) (def_to_string v);
+    v
 
 let rec subst_constr (subst,usubst as e) c = match [@ocaml.warning "-4"] Constr.kind c with
 | Rel i ->
@@ -941,27 +989,37 @@ let rec try_drop_parameters depth n = function
         (* strip_update_shift_app only produces Zapp and Zshift items *)
 
 let drop_parameters depth n argstk =
-  try try_drop_parameters depth n argstk
+  try
+    try_drop_parameters depth n argstk
   with Not_found ->
-  (* we know that n < stack_args_size(argstk) (if well-typed term) *)
-  anomaly (Pp.str "ill-typed term: found a match on a partially applied constructor.")
+    (* we know that n < stack_args_size(argstk) (if well-typed term) *)
+    anomaly (Pp.str "ill-typed term: found a match on a partially applied constructor.")
 
 let inductive_subst mib u oenvred pms =
   let rec mk_pms i ctx = match ctx with
-  | [] -> Esubst.subs_id 0
-  | RelDecl.LocalAssum _ :: ctx ->
-    let subs = mk_pms (i - 1) ctx in
-    Esubst.subs_cons (oenvred, pms.(i)) subs
-  | RelDecl.LocalDef (_, c, _) :: ctx ->
-    let subs = mk_pms i ctx in
-    Esubst.subs_cons (oenvred, mk_clos (subs,u) c) subs
+    | [] -> Esubst.subs_id 0
+    | RelDecl.LocalAssum _ :: ctx ->
+      let subs = mk_pms (i - 1) ctx in
+      Esubst.subs_cons (oenvred, pms.(i)) subs
+    | RelDecl.LocalDef (_, c, _) :: ctx ->
+      let subs = mk_pms i ctx in
+      Esubst.subs_cons (oenvred, mk_clos (subs,u) c) subs
   in
   mk_pms (Array.length pms - 1) mib.mind_params_ctxt, u
 
 (* Iota-reduction: feed the arguments of the constructor to the branch *)
 let get_branch oenvred infos depth ci u pms (ind, c) br (e : usubs)  args =
   let i = c - 1 in
-  let args = drop_parameters depth ci.ci_npar args in
+  let args =
+    try
+      try_drop_parameters depth ci.ci_npar args
+    with Not_found ->
+    (* we know that n < stack_args_size(argstk) (if well-typed term) *)
+      Printf.printf "fterm: %s\nstack: %s\n%!"
+        (to_string (mk_red (FConstruct ((ind, c), u))))
+        (stack_to_string args);
+      anomaly (Pp.str "ill-typed term: found a match on a partially applied constructor.")
+  in
   let (_nas, br) = br.(i) in
   if Int.equal ci.ci_cstr_ndecls.(i) ci.ci_cstr_nargs.(i) then
     (* No let-bindings in the constructor, we don't have to fetch the
@@ -1453,6 +1511,10 @@ let is_irrelevant_projection infos p = match infos.i_cache.i_mode with
    constructor, cofix, letin, constant), or a neutral term (product,
    inductive) *)
 let rec knh info m stk =
+  if debug then Printf.printf "knh fterm(full=%b): %s\nknh stack: %s\n%!"
+    (info_full info)
+    (to_string m)
+    (stack_to_string stk);
   match m.term with
     | FLIFT(k,a) -> knh info a (zshift k stk)
     | FCLOS(t,e) -> knht info e t (zupdate info m stk)
@@ -1486,6 +1548,11 @@ let rec knh info m stk =
 
 (* The same for pure terms *)
 and knht info (e : usubs) t stk =
+  if debug then Printf.printf "knht fterm(full=%b): %s\nknht usubs: %s\nknht stack: %s\n%!"
+    (info_full info)
+    (Pp.string_of_ppcmds (Constr.debug_print t))
+    (usubs_to_string e)
+    (stack_to_string stk);
   match kind t with
     | App(a,b) ->
         knht info e a (append_stack (mk_clos_vect e b) stk)
@@ -1538,13 +1605,26 @@ let conv : (clos_infos -> clos_tab -> fconstr -> fconstr -> bool) ref
   = ref (fun _ _ _ _ -> (assert false : bool))
 let set_conv f = conv := f
 
+
+let knr_counter = ref 0
+let kni_counter = ref 0
+let knit_counter = ref 0
+
 (* Computes a weak head normal form from the result of knh. *)
 let rec knr info tab m stk =
+  let count = !knr_counter in
+  incr knr_counter;
+  if debug then Printf.printf "knr(%i) fterm(full=%b): %s\nknr stack: %s\n%!"
+    count
+    (info_full info)
+    (to_string m)
+    (stack_to_string stk);
   let oenvred =
     if info_full info then
       Some (fun m -> !eval_lazy_ref info m)
     else None
   in
+  let res =
   match m.term with
   | FLambda(n,tys,f,e) when red_set info.i_flags fBETA ->
       (match get_args oenvred n tys f e stk with
@@ -1609,9 +1689,11 @@ let rec knr info tab m stk =
      | FredNative.Result m -> kni info tab m stk
      | FredNative.Error -> assert false
      | FredNative.Progress (_, args) ->
-         m.mark <- Cstr;
-         m.term <- FPrimitive (op, pc, fc, args);
-         knr info tab m stk) (* TODO *)
+         (* m.mark <- Cstr; *)
+         (* m.term <- FPrimitive (op, pc, fc, args); *)
+       let m = { mark= Cstr; term=FPrimitive (op, pc, fc, args)} in
+       knr info tab m stk
+    ) (* TODO *)
   | FInt _ | FFloat _ | FArray _ | FPrimitive _ ->
     (match [@ocaml.warning "-4"] strip_update_shift_app_head m stk with
      | (_, (_, _, Zprimitive(op,c,opm,rargs,nargs)::s)) ->
@@ -1643,14 +1725,53 @@ let rec knr info tab m stk =
   | FLOCKED | FCLOS _ | FApp _ | FCaseT _ | FLIFT _ ->
     (* ruled out by knh(t) *)
     assert false
+  in
+  if debug then Printf.printf "knr(%i) result: %s @ %s\n%!"
+    count
+    (to_string (fst res))
+    (stack_to_string (snd res));
+  res
 
 (* Computes the weak head normal form of a term *)
 and kni info tab m stk =
+  let count = !kni_counter in
+  incr kni_counter;
+  if debug then Printf.printf "kni(%i) fterm(full=%b): %s\nkni stack: %s\n%!"
+    count
+    (info_full info)
+    (to_string m)
+    (stack_to_string stk);
   let (hm,s) = knh info m stk in
-  knr info tab hm s
+  if debug then Printf.printf "kni(%i) after knh: %s @ %s\n%!"
+    count
+    (to_string hm)
+    (stack_to_string s);
+  let res = knr info tab hm s in
+  if debug then Printf.printf "kni(%i) after knr: %s @ %s\n%!"
+    count
+    (to_string (fst res))
+    (stack_to_string (snd res));
+  res
 and knit info tab (e : usubs) t stk =
+  let count = !knit_counter in
+  incr knit_counter;
+  if debug then Printf.printf "knit(%i) fterm(full=%b): %s\nknit usubs: %s\nknit stack: %s\n%!"
+    count
+    (info_full info)
+    (constr_to_string t)
+    (usubs_to_string e)
+    (stack_to_string stk);
   let (ht,s) = knht info e t stk in
-  knr info tab ht s
+  if debug then Printf.printf "knit(%i) after knht: %s @ %s\n%!"
+    count
+    (to_string ht)
+    (stack_to_string s);
+  let res = knr info tab ht s in
+  if debug then Printf.printf "knit(%i) after knr: %s @ %s\n%!"
+    count
+    (to_string (fst res))
+    (stack_to_string (snd res));
+  res
 
 and case_inversion oenvred info tab ci u params indices v =
   let open Declarations in
@@ -1696,15 +1817,38 @@ let is_val v = match v.term with
 | FProd _ | FLetIn _ | FEvar _ | FArray _ | FLIFT _ | FCLOS _ -> false
 | FIrrelevant | FLOCKED -> assert false
 
+let kl_counter = ref 0
+let klt_counter = ref 0
+
 let rec kl info tab m =
+  let count = !kl_counter in
+  incr kl_counter;
+  if debug then Printf.printf "kl(%i) fterm(full=%b,val=%b): %s\n%!"
+      count
+      (info_full info)
+      (is_val m)
+      (to_string m);
   let share = info.i_cache.i_share in
   if is_val m then term_of_fconstr m
   else
     let (nm,s) = kni info tab m [] in
     let () = if share then ignore (fapp_stack (nm, s)) in (* to unlock Zupdates! *)
-    zip_term info tab (norm_head info tab nm) s
+    if debug then Printf.printf "kl(%i) before norm_head.\n%!" count;
+    let nt = norm_head info tab nm in
+    if debug then Printf.printf "kl(%i)  after norm_head.\n%!" count;
+    let res = zip_term info tab nt s in
+    if debug then Printf.printf "kl(%i)  after zip_term.\n%!" count;
+    res
 
-and klt info tab (e : usubs) t = match kind t with
+and klt info tab (e : usubs) t =
+  let count = !klt_counter in
+  incr klt_counter;
+  if debug then Printf.printf "klt(%i) fterm(full=%b): %s\nklt usubs: %s\n%!"
+    count
+    (info_full info)
+    (Pp.string_of_ppcmds (Constr.debug_print t))
+    (usubs_to_string e);
+  match kind t with
 | Rel i ->
   begin match Esubst.expand_rel i (fst e) with
   | Inl (n, (None, mt)) -> kl info tab @@ lift_fconstr n mt
@@ -1713,18 +1857,26 @@ and klt info tab (e : usubs) t = match kind t with
   | Inr (k, Some p) -> kl info tab @@ lift_fconstr (k-p) {mark=Red;term=FFlex(RelKey p)}
   end
 | App (hd, args) ->
+  if debug then Printf.printf "klt(%i) App.\n%!" count;
   begin match kind hd with
   | Ind _ | Construct _ ->
+    if debug then Printf.printf "klt(%i) App, Ind.\n%!" count;
     let args' = Array.Smart.map (fun c -> klt info tab e c) args in
     let hd' = subst_instance_constr (snd e) hd in
     if hd' == hd && args' == args then t
     else mkApp (hd', args')
   | Var _ | Const _ | CoFix _ | Lambda _ | Fix _ | Prod _ | Evar _ | Case _
   | Cast _ | LetIn _ | Proj _ | Array _ | Rel _ | Meta _ | Sort _ | Int _ | Float _ ->
+    if debug then Printf.printf "klt(%i) App, _.\n%!" count;
     let share = info.i_cache.i_share in
     let (nm,s) = knit info tab e t [] in
     let () = if share then ignore (fapp_stack (nm, s)) in (* to unlock Zupdates! *)
-    zip_term info tab (norm_head info tab nm) s
+    if debug then Printf.printf "klt(%i) before norm_head.\n%!" count;
+    let nt = norm_head info tab nm in
+    if debug then Printf.printf "klt(%i)  after norm_head.\n%!" count;
+    let res = zip_term info tab nt s in
+    if debug then Printf.printf "klt(%i)  after zip_term.\n%!" count;
+    res
   | App _ -> assert false
   end
 | Lambda (na, u, c) ->
@@ -1742,12 +1894,18 @@ and klt info tab (e : usubs) t = match kind t with
   let share = info.i_cache.i_share in
   let (nm,s) = knit info tab e t [] in
   let () = if share then ignore (fapp_stack (nm, s)) in (* to unlock Zupdates! *)
-  zip_term info tab (norm_head info tab nm) s
+  if debug then Printf.printf "klt(%i) before norm_head.\n%!" count;
+  let nt = norm_head info tab nm in
+  if debug then Printf.printf "klt(%i)  after norm_head.\n%!" count;
+  let res = zip_term info tab nt s in
+  if debug then Printf.printf "klt(%i)  after zip_term.\n%!" count;
+  res
 | Meta _ | Sort _ | Ind _ | Construct _ | Int _ | Float _ -> subst_instance_constr (snd e) t
 
 (* no redex: go up for atoms and already normalized terms, go down
    otherwise. *)
 and norm_head info tab m =
+  if debug then Printf.printf "norm head.\n%!";
   if is_val m then term_of_fconstr m else
     match m.term with
       | FLambda(_n,tys,f,e) ->
@@ -1791,7 +1949,12 @@ and norm_head info tab m =
       | FPrimitive _ -> assert false (* Not a value, should have reduced *)
       | FIrrelevant -> assert false (* only introduced when converting *)
 
-and zip_term info tab m stk = match stk with
+and zip_term info tab m stk =
+  if debug then Printf.printf "zip_term fterm(full=%b): %s\nzip_term stack: %s\n%!"
+    (info_full info)
+    (Pp.string_of_ppcmds (Constr.debug_print m))
+    (stack_to_string stk);
+  match stk with
 | [] -> m
 | Zapp args :: s ->
     zip_term info tab (mkApp(m, Array.map (kl info tab) args)) s
@@ -1830,10 +1993,17 @@ let whd_val info tab v = term_of_fconstr (kh info tab v [])
 let norm_val info tab v = kl info tab v
 let norm_term info tab e t = klt info tab e t
 
+let counter = ref 0
+
 let eval_lazy info t =
+  let v = !counter in
+  counter := !counter + 1;
+  if debug then Printf.printf "eval_lazy(%i)  in: %s\n%!" v (to_string t);
   let tab = KeyTable.create 17 in
   let t = kl info tab t in
-  mk_clos (Esubst.subs_id 0, Univ.Instance.empty) t
+  if debug then Printf.printf "eval_lazy(%i) out: %s\n%!" v (Pp.string_of_ppcmds (Constr.debug_print t));
+  let res = mk_clos (Esubst.subs_id 0, Univ.Instance.empty) t in
+  res
 let _ = eval_lazy_ref := eval_lazy
 
 let whd_stack infos tab m stk = match m.mark with
@@ -1853,7 +2023,8 @@ let whd_stack infos tab m stk = match m.mark with
 
 let create_conv_infos ?univs ?(evars=default_evar_handler) flgs env =
   let univs = Option.default (universes env) univs in
-  let share = (Environ.typing_flags env).Declarations.share_reduction in
+  (* let share = (Environ.typing_flags env).Declarations.share_reduction in *)
+  let share = false in
   let cache = {
     i_env = env;
     i_sigma = evars;
@@ -1865,7 +2036,8 @@ let create_conv_infos ?univs ?(evars=default_evar_handler) flgs env =
 
 let create_clos_infos ?univs ?(evars=default_evar_handler) flgs env =
   let univs = Option.default (universes env) univs in
-  let share = (Environ.typing_flags env).Declarations.share_reduction in
+  (* let share = (Environ.typing_flags env).Declarations.share_reduction in *)
+  let share = false in
   let cache = {
     i_env = env;
     i_sigma = evars;
@@ -1893,7 +2065,7 @@ let unfold_ref_with_args infos tab fl v =
       match get_native_args op c v with
       | ((rargs, (kd,a):: nargs), v) ->
           assert (kd = CPrimitives.Kwhnf);
-          Some (a, (Zupdate a::(Zprimitive(op,c,m,rargs,nargs)::v)))
+            Some (a, zupdate infos a (Zprimitive(op,c,m,rargs,nargs)::v))
       | ((rargs, []), v) ->
           let args = Array.of_list (List.rev rargs) in
           let (_,u) = c in
