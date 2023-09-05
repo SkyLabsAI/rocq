@@ -795,11 +795,15 @@ let strip_update_shift_app_red head stk =
         let () = update m h.mark h.term in
         strip_rec rstk m depth s
     | ((ZcaseT _ | Zproj _ | Zfix _ | Zprimitive _) :: _ | []) as stk ->
-      (depth,List.rev rstk, stk)
+      (h, (depth,List.rev rstk, stk))
   in
   strip_rec [] head 0 stk
 
 let strip_update_shift_app head stack =
+  assert (match head.mark with Red -> false | Ntrl | Cstr -> true);
+  snd (strip_update_shift_app_red head stack)
+
+let strip_update_shift_app_head head stack =
   assert (match head.mark with Red -> false | Ntrl | Cstr -> true);
   strip_update_shift_app_red head stack
 
@@ -1609,8 +1613,8 @@ let rec knr info tab m stk =
          m.term <- FPrimitive (op, pc, fc, args);
          knr info tab m stk) (* TODO *)
   | FInt _ | FFloat _ | FArray _ | FPrimitive _ ->
-    (match [@ocaml.warning "-4"] strip_update_shift_app m stk with
-     | (_, _, Zprimitive(op,c,opm,rargs,nargs)::s) ->
+    (match [@ocaml.warning "-4"] strip_update_shift_app_head m stk with
+     | (_, (_, _, Zprimitive(op,c,opm,rargs,nargs)::s)) ->
        let (rargs, nargs) = skip_native_args (m::rargs) nargs in
        begin match nargs with
          | [] ->
@@ -1620,10 +1624,7 @@ let rec knr info tab m stk =
            assert (kd = CPrimitives.Kwhnf);
            kni info tab a (Zprimitive(op,c,opm,rargs,nargs)::s)
        end
-     | (_, rs, s) ->
-       (m, List.rev_append rs s))
-       (* ^ Used to be [(m, s)], but that is not good enough for [FPrimitive], since it can have arguments. *)
-       (* Here, we don't want [strip_update_shift_app] to handle [Zapp]... *)
+     | (head, (_, _, s)) -> (head, s))
   | FCaseInvert (ci, u, pms, _p,iv,_c,v,env) when red_set info.i_flags fMATCH ->
     let pms = mk_clos_vect env pms in
     let u = usubst_instance env u in
