@@ -346,6 +346,53 @@ type stack_member =
 
 and stack = stack_member list
 
+let table_key_to_string k =
+  match k with
+  | Names.ConstKey (c, _) -> Names.Constant.to_string c
+  | Names.VarKey i -> Printf.sprintf "\"var:%s\"" (Names.Id.to_string i)
+  | Names.RelKey i -> Printf.sprintf "\"rel:%i\"" i
+
+let [@ocaml.warning "-32"] rec to_string (c : fconstr) : string =
+  match c.term with
+  | FRel i -> Printf.sprintf "FRel %i" i
+  | FAtom c -> Printf.sprintf "FAtom (%s)" (Pp.string_of_ppcmds (Constr.debug_print c))
+  | FFlex k -> Printf.sprintf "FFlex %s" (table_key_to_string k)
+  | FInd _ -> Printf.sprintf "FInd _"
+  | FConstruct (((i,n),m),_) -> Printf.sprintf "FConstruct (%s,%i,%i)" (Names.MutInd.to_string i) n m
+  | FApp (h, args) -> Printf.sprintf "FApp (%s, [|%s|])" (to_string h) (String.concat ";" (Array.to_list (Array.map to_string args)))
+  | FProj (_, c) -> Printf.sprintf "FProj (_, %s)" (to_string c)
+  | FFix (_, _) -> Printf.sprintf "FFix (_, _)"
+  | FCoFix (_, _) -> Printf.sprintf "FCoFix (_, _)"
+  | FCaseT (_, _, _, _, _, _, _) -> Printf.sprintf "FCaseT (_, _, _, _, _, _, _)"
+  | FCaseInvert (_, _, _, _, _, _, _, _) -> Printf.sprintf "FCaseInvert (_, _, _, _, _, _, _, _)"
+  | FLambda (_, _, _, _) -> Printf.sprintf "FLambda (_, _, _, _)"
+  | FProd (_, _, _, _) -> Printf.sprintf "FProd (_, _, _, _)"
+  | FLetIn (_, _, _, _, _) -> Printf.sprintf "FLetIn (_, _, _, _, _)"
+  | FEvar (_, _, _, _) -> Printf.sprintf "FEvar (_, _, _, _)"
+  | FInt _ -> Printf.sprintf "FInt _"
+  | FFloat _ -> Printf.sprintf "FFloat _"
+  | FArray (_, _, _) -> Printf.sprintf "FArray (_, _, _)"
+  | FLIFT (i, c) -> Printf.sprintf "FLIFT (%i, %s)" i (to_string c)
+  | FCLOS (c, _) -> Printf.sprintf "FCLOS (%s, _)" (Pp.string_of_ppcmds (Constr.debug_print c))
+  | FIrrelevant -> Printf.sprintf "FIrrelevant"
+  | FLOCKED -> Printf.sprintf "FLOCKED"
+  | FPrimitive (p, _, _, args) -> Printf.sprintf "FPrimitive (%s, _, _, [|%s|])" (CPrimitives.to_string p) (String.concat ";" (Array.to_list (Array.map to_string args)))
+
+let [@ocaml.warning "-32"] stack_to_string s =
+  let member_to_string m =
+    match m with
+    | Zapp args -> Printf.sprintf "Zapp{%i} [|%s|]"
+                     (Array.length args)
+                     (String.concat "; " (Array.to_list (Array.map to_string args)))
+    | ZcaseT (_,_,_,_,_,_) -> "ZcaseT _"
+    | Zproj _ -> "Zproj _"
+    | Zfix _ -> "Zfix _"
+    | Zprimitive (op,_,_,_,_) -> Printf.sprintf "Zprimitive (%s,_,_,_,_)" (CPrimitives.to_string op)
+    | Zshift i -> Printf.sprintf "Zshift %i" i
+    | Zupdate _ -> "Zupdate _"
+  in
+  String.concat " :: " (List.map member_to_string s) ^ " :: []"
+
 let empty_stack = []
 let append_stack v s =
   if Int.equal (Array.length v) 0 then s else
