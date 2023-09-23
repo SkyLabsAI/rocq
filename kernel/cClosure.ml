@@ -34,30 +34,6 @@ open Vars
 open Esubst
 open RedFlags
 
-let id_red =
-  let r = red_add no_red fDELTA in
-  let ts =
-    let tr_cst =
-      let open Names in
-      let mp =
-        let mp = List.rev_map Id.of_string ["Coq"; "Force"; "Force"] in
-        ModPath.MPfile (DirPath.make mp)
-      in
-      let make_constant name =
-        let kn = KerName.make mp (Label.make name) in
-        Constant.make1 kn
-      in
-      let l = List.map make_constant [(* "run"; *) "block"; "unblock"] in
-      List.fold_right Cpred.add l Cpred.empty
-    in
-    TransparentState.{tr_var = Names.Id.Pred.empty; tr_cst}
-  in
-  red_add_transparent r ts
-
-let full_red =
-  let r = red_add_transparent no_red TransparentState.full in
-  List.fold_left red_add r [fBETA; fDELTA; fZETA; fMATCH; fFIX; fCOFIX]
-
 module RelDecl = Context.Rel.Declaration
 module NamedDecl = Context.Named.Declaration
 
@@ -101,11 +77,29 @@ type evar_repack = Evar.t * constr list -> constr
 
 type mode = NormalFull | NormalWhnf | Full | Identity
 
-let red_transparent mode flags =
-  match mode with
-  | NormalFull | NormalWhnf -> red_transparent flags
-  | Identity -> red_transparent id_red
-  | Full -> red_transparent full_red
+let red_transparent =
+  let id_ts =
+    let tr_cst =
+      let open Names in
+      let mp =
+        let mp = List.rev_map Id.of_string ["Coq"; "Force"; "Force"] in
+        ModPath.MPfile (DirPath.make mp)
+      in
+      let make_constant name =
+        let kn = KerName.make mp (Label.make name) in
+        Constant.make1 kn
+      in
+      let l = List.map make_constant [(* "run"; *) "block"; "unblock"] in
+      List.fold_right Cpred.add l Cpred.empty
+    in
+    TransparentState.{tr_var = Names.Id.Pred.empty; tr_cst}
+  in
+  let red_transparent mode flags =
+    match mode with
+    | NormalFull | NormalWhnf -> red_transparent flags
+    | Identity -> id_ts
+    | Full -> TransparentState.full
+  in red_transparent
 
 let red_set mode flags f =
   match mode with
@@ -251,25 +245,15 @@ module Debug = struct
     pp_list pp ff (SList.to_list sl)
 
   let pp_flags : RedFlags.reds pp = fun ff reds ->
-    let out fmt = Format.fprintf ff fmt in
-    if reds == full_red then out "full" else
-    if reds == id_red then out "id" else
-    let flags =
-      List.map_filter
-        (fun (b, s) -> if b then Some s else None)
-        (List.combine
-        [
-          RedFlags.red_set reds RedFlags.fBETA;
-          RedFlags.red_set reds RedFlags.fDELTA;
-          RedFlags.red_set reds RedFlags.fZETA;
-          RedFlags.red_set reds RedFlags.fMATCH;
-          RedFlags.red_set reds RedFlags.fFIX;
-          RedFlags.red_set reds RedFlags.fCOFIX;
-        ]
-        ["β";"δ";"ζ";"M";"F";"C"]
-        )
+    let pp_flag f repr =
+      if RedFlags.red_set reds f then Format.pp_print_string ff repr
     in
-    Format.fprintf ff "%a" (pp_list (fun ff -> Format.fprintf ff "%s")) flags
+    pp_flag RedFlags.fBETA "β";
+    pp_flag RedFlags.fDELTA "δ";
+    pp_flag RedFlags.fZETA "ζ";
+    pp_flag RedFlags.fMATCH "M";
+    pp_flag RedFlags.fFIX "F";
+    pp_flag RedFlags.fCOFIX "C"
 
   let rec pp_constr : constr pp = fun ff c ->
     let out fmt = Format.fprintf ff fmt in
