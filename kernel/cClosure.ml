@@ -571,9 +571,9 @@ let usubst_sort (_,u) s = match s with
 
 (* Optimization: do not enclose variables in a closure.
    Makes variable access much faster *)
-let mk_clos ~mode ~resolve_rel (e:usubs) t =
+let mk_clos ~mode (e:usubs) t =
   match kind t with
-    | Rel i when resolve_rel -> clos_rel ~mode e i
+    | Rel i -> clos_rel ~mode e i
     | Var x -> {mark = Red; term = FFlex (VarKey x); mode}
     | Const c -> {mark = Red; term = FFlex (ConstKey (usubst_punivs e c)); mode}
     | Sort s ->
@@ -584,13 +584,13 @@ let mk_clos ~mode ~resolve_rel (e:usubs) t =
     | Construct kn -> {mark = Cstr; term = FConstruct (usubst_punivs e kn); mode}
     | Int i -> {mark = Cstr; term = FInt i; mode}
     | Float f -> {mark = Cstr; term = FFloat f; mode}
-    | (CoFix _|Lambda _|Fix _|Prod _|Evar _|App _|Case _|Cast _|LetIn _|Proj _|Array _|Rel _) ->
+    | (CoFix _|Lambda _|Fix _|Prod _|Evar _|App _|Case _|Cast _|LetIn _|Proj _|Array _) ->
         {mark = Red; term = FCLOS(t,e); mode}
 
-let injectu ~mode ~resolve_rel c u =
-  mk_clos ~mode ~resolve_rel (Esubst.subs_id 0, u) c
+let injectu ~mode c u =
+  mk_clos ~mode (Esubst.subs_id 0, u) c
 
-let inject ~mode c = injectu ~mode ~resolve_rel:true c Univ.Instance.empty
+let inject ~mode c = injectu ~mode c Univ.Instance.empty
 
 let mk_irrelevant = { mark = Cstr; term = FIrrelevant; mode = NormalWhnf }
 
@@ -639,9 +639,8 @@ end = struct
     | NamedDecl.LocalDef (_, c, _) -> inject ~mode c
     | NamedDecl.LocalAssum (_, _) -> raise Not_found
 
-  (* Closed terms shouldn't be [Rel], so we can use [resolve_rel:true]. *)
   let constant_value_in ~mode u = function
-    | Def b -> injectu ~mode ~resolve_rel:true b u
+    | Def b -> injectu ~mode b u
     | OpaqueDef _ -> raise (NotEvaluableConst Opaque)
     | Undef _ -> raise (NotEvaluableConst NoBody)
     | Primitive p -> raise (NotEvaluableConst (IsPrimitive (u,p)))
@@ -712,8 +711,8 @@ let create_tab = Table.create
 
 (** Hand-unrolling of the map function to bypass the call to the generic array
     allocation *)
-let mk_clos_vect ~mode ~resolve_rel env v =
-  let mk_clos = mk_clos ~mode ~resolve_rel in
+let mk_clos_vect ~mode env v =
+  let mk_clos = mk_clos ~mode in
   match v with
 | [||] -> [||]
 | [|v0|] -> [|mk_clos env v0|]
@@ -730,7 +729,7 @@ let to_usubs ~mode : Constr.t lazy_t Esubst.subs * Univ.Instance.t -> usubs = fu
     let m =
       lazy (
         let empty = (Esubst.subs_id 0, Univ.Instance.empty) in
-        mk_clos ~mode ~resolve_rel:true empty (Constr.exliftn l (Lazy.force cl))
+        mk_clos ~mode empty (Constr.exliftn l (Lazy.force cl))
       )
     in
     {mark = Red; term = FLAZY m; mode}
@@ -994,17 +993,17 @@ let zip m stk =
       let f = {mark = Red; term = FFlex (ConstKey c); mode} in
       zip {mark=(neutr m.mark); term = FApp (f, Array.of_list args); mode} s
     | Zunblock (op,ty,e,mode) :: s ->
-      let op = mk_clos ~mode ~resolve_rel:true e op in
+      let op = mk_clos ~mode e op in
       op.mark <- Ntrl;
-      let ty = mk_clos ~mode ~resolve_rel:true e ty in
+      let ty = mk_clos ~mode e ty in
       let m = { m with mark=Ntrl } in
       zip {mark=Ntrl; term=FApp (op, [|ty; m|]); mode} s
     | Zrun (op,ty1,ty2,k,e,mode) :: s ->
-      let op = mk_clos ~mode ~resolve_rel:true e op in
+      let op = mk_clos ~mode e op in
       op.mark <- Ntrl;
-      let ty1 = mk_clos ~mode ~resolve_rel:true e ty1 in
-      let ty2 = mk_clos ~mode ~resolve_rel:true e ty2 in
-      let k = mk_clos ~mode ~resolve_rel:true e k in
+      let ty1 = mk_clos ~mode e ty1 in
+      let ty2 = mk_clos ~mode e ty2 in
+      let k = mk_clos ~mode e k in
       let m = { m with mark=Ntrl } in
       zip {mark=Ntrl; term=FApp (op, [|ty1; ty2; m; k|]); mode} s
   in
@@ -1215,7 +1214,7 @@ let inductive_subst ~mode mib u pms =
     Esubst.subs_cons (pms.(i)) subs (* TODO mk_clos? *)
   | RelDecl.LocalDef (_, c, _) :: ctx ->
     let subs = mk_pms i ctx in
-    Esubst.subs_cons (mk_clos ~mode ~resolve_rel:true (subs,u) c) subs (* TODO no mk_clos?; TODO: resolve_rel? *)
+    Esubst.subs_cons (mk_clos ~mode (subs,u) c) subs (* TODO no mk_clos? *)
   in
   mk_pms (Array.length pms - 1) mib.mind_params_ctxt, u
 
@@ -1248,7 +1247,7 @@ let get_branch ~mode infos depth ci u pms (ind, c) br (e : usubs)  args =
     | Zshift _ | ZcaseT _ | Zproj _ | Zfix _ | Zupdate _ | Zprimitive _ | Zunblock _ | Zrun _ ->
       assert false
     in
-    let ind_subst = inductive_subst ~mode mib u (Array.map (mk_clos ~mode ~resolve_rel:true e) pms) in
+    let ind_subst = inductive_subst ~mode mib u (Array.map (mk_clos ~mode e) pms) in
     let args = Array.concat (List.map map args) in
     let rec push i e = function
     | [] -> []
@@ -1260,7 +1259,7 @@ let get_branch ~mode infos depth ci u pms (ind, c) br (e : usubs)  args =
       let b = subst_instance_constr u b in
       let s = Array.rev_of_list ans in
       let e = usubs_consv s ind_subst in
-      let v = mk_clos ~mode ~resolve_rel:true e b in
+      let v = mk_clos ~mode e b in
       v :: ans
     in
     let ext = push (Array.length args - 1) [] ctx in
@@ -1759,11 +1758,10 @@ let rec knh info tab m stk =
 
 and knht_app ~mode ~lexical info tab e h args stk =
   if debug_on () then Debug.line "knht_app: %a lexical:%b %a _ %a (%a) %a (%a)" pp_mode mode lexical pp_info info pp_usubs e pp_constr h (pp_array pp_constr) args  pp_stack stk;
-  let resolve_rel = info.i_flags != id_red && info.i_flags != full_red in
   match destruct_app ~mode info tab h args with
   | Application (h,args) ->
       if debug_on () then Debug.line "destruct_app: application";
-      let stk = append_stack (mk_clos_vect ~mode ~resolve_rel e args) stk in
+      let stk = append_stack (mk_clos_vect ~mode e args) stk in
       knht ~mode info tab e h stk
   | PartialPrim (op, n) ->
       if debug_on () then Debug.line "destruct_app: partial primitive (%s, %i)" (CPrimitives.to_string op) n;
@@ -1775,12 +1773,12 @@ and knht_app ~mode ~lexical info tab e h args stk =
   | Unblock (op, ty, t, args) ->
       if debug_on () then Debug.line "destruct_app: unblock";
       let mode_full = if lexical then Full else NormalWhnf  in
-      let stk = (append_stack (mk_clos_vect ~mode ~resolve_rel e args) stk) in
+      let stk = (append_stack (mk_clos_vect ~mode e args) stk) in
       knht ~mode:mode_full info tab e t (Zunblock (op, ty, e, mode) :: stk)
   | Run (op, ty1, ty2, t, k, args) ->
       if debug_on () then Debug.line "destruct_app: run";
       let mode_full = if lexical then Full else NormalWhnf  in
-      let stk = (append_stack (mk_clos_vect ~mode ~resolve_rel e args) stk) in
+      let stk = (append_stack (mk_clos_vect ~mode e args) stk) in
       knht ~mode:mode_full info tab e t (Zrun (op, ty1, ty2, k, e, mode) :: stk)
 
 (* The same for pure terms *)
@@ -1797,7 +1795,7 @@ and knht ~mode info tab (e : usubs) t stk : fconstr * stack =
       if is_irrelevant info ci.ci_relevance then
         (mk_irrelevant, skip_irrelevant_stack info stk)
       else
-        let term = FCaseInvert (ci, u, pms, p, (Array.map (mk_clos ~mode ~resolve_rel:true e) indices), mk_clos ~mode ~resolve_rel:true e t, br, e) in
+        let term = FCaseInvert (ci, u, pms, p, (Array.map (mk_clos ~mode e) indices), mk_clos ~mode e t, br, e) in
         ({ mark = Red; term; mode }, stk)
     | Fix (((_, n), (lna, _, _)) as fx) ->
       if is_irrelevant info (lna.(n)).binder_relevance then
@@ -1806,14 +1804,14 @@ and knht ~mode info tab (e : usubs) t stk : fconstr * stack =
         knh info tab { mark = Cstr; term = FFix (fx, e) ; mode } stk
     | Cast(a,_,_) -> knht ~mode info tab e a stk
     | Rel n -> knh info tab (clos_rel ~mode e n) stk
-    | Proj (p, c) -> knh info tab { mark = Red; term = FProj (p, mk_clos ~mode ~resolve_rel:true e c) ; mode } stk
-    | (Ind _|Const _|Construct _|Var _|Meta _ | Sort _ | Int _|Float _) -> (mk_clos ~mode ~resolve_rel:true e t, stk)
+    | Proj (p, c) -> knh info tab { mark = Red; term = FProj (p, mk_clos ~mode e c) ; mode } stk
+    | (Ind _|Const _|Construct _|Var _|Meta _ | Sort _ | Int _|Float _) -> (mk_clos ~mode e t, stk)
     | CoFix cfx -> ({ mark = Cstr; term = FCoFix (cfx,e) ; mode }, stk)
     | Lambda _ -> ({ mark = Cstr ; term = mk_lambda e t ; mode }, stk)
     | Prod (n, t, c) ->
-      ({ mark = Ntrl; term = FProd (n, mk_clos ~mode ~resolve_rel:true e t, c, e) ; mode }, stk)
+      ({ mark = Ntrl; term = FProd (n, mk_clos ~mode e t, c, e) ; mode }, stk)
     | LetIn (n,b,t,c) ->
-      ({ mark = Red; term = FLetIn (n, mk_clos ~mode ~resolve_rel:true e b, mk_clos ~mode ~resolve_rel:true e t, c, e) ; mode }, stk)
+      ({ mark = Red; term = FLetIn (n, mk_clos ~mode e b, mk_clos ~mode e t, c, e) ; mode }, stk)
     | Evar ev ->
       begin match info.i_cache.i_sigma.evar_expand ev with
       | EvarDefined c -> knht ~mode info tab e c stk
@@ -1826,8 +1824,8 @@ and knht ~mode info tab (e : usubs) t stk : fconstr * stack =
       end
     | Array(u,t,def,ty) ->
       let len = Array.length t in
-      let ty = mk_clos ~mode ~resolve_rel:true e ty in
-      let t = Parray.init (Uint63.of_int len) (fun i -> mk_clos ~mode ~resolve_rel:true e t.(i)) (mk_clos ~mode ~resolve_rel:true e def) in
+      let ty = mk_clos ~mode e ty in
+      let t = Parray.init (Uint63.of_int len) (fun i -> mk_clos ~mode e t.(i)) (mk_clos ~mode e def) in
       let term = FArray (u,t,ty) in
       knh info tab { mark = Cstr; term ; mode } stk
 
@@ -1949,13 +1947,13 @@ let rec knr info tab m stk =
          knit ~mode info tab e t stk
      | (_, rargs, Zrun (_,_,_,k,ek,mode) :: stk) ->
          let stk = List.rev_append rargs stk in
-         let k = mk_clos ~mode ~resolve_rel:true ek k in
-         let t = mk_clos ~mode ~resolve_rel:true e t in
+         let k = mk_clos ~mode ek k in
+         let t = mk_clos ~mode e t in
          let term = FApp(k,[|t|]) in
          kni info tab {mark=Red; mode; term} stk
      | (_, rargs, stk) -> (m, List.rev_append rargs stk))
   | FCaseInvert (ci, u, pms, _p,iv,_c,v,env) when red_set m.mode info.i_flags fMATCH ->
-    let pms = mk_clos_vect ~mode:m.mode ~resolve_rel:true env pms in
+    let pms = mk_clos_vect ~mode:m.mode env pms in
     let u = usubst_instance env u in
     begin match case_inversion ~mode:m.mode info tab ci u pms iv v with
       | Some c -> knit ~mode:m.mode info tab env c stk
@@ -2006,7 +2004,7 @@ and case_inversion ~mode info tab ci u params indices v =
     let info = {info with i_cache = { info.i_cache with i_mode = Conversion}; i_flags=all} in
     let check_index i index =
       let expected = expect_args.(ci.ci_npar + i) in
-      let expected = mk_clos ~mode ~resolve_rel:true (psubst,u) expected in
+      let expected = mk_clos ~mode (psubst,u) expected in
       !conv info tab expected index
     in
     if Array.for_all_i check_index 0 indices
@@ -2181,7 +2179,7 @@ and zip_term info tab m stk =
     let ty1 = klt ~mode info tab e ty1 in
     let ty2 = klt ~mode info tab e ty2 in
     let k = klt ~mode info tab e k in
-    let m = term_of_fconstr ~info ~tab (mk_clos ~mode:NormalWhnf ~resolve_rel:true e m) in (* TODO mode? see [Zunblock] above *)
+    let m = term_of_fconstr ~info ~tab (mk_clos ~mode:NormalWhnf e m) in (* TODO mode? see [Zunblock] above *)
     let h = Constr.mkApp (op, [|ty1; ty2; m; k|]) in
     zip_term info tab h s
 
@@ -2261,7 +2259,7 @@ let eval_lazy ~mode info tab m =
   let () = Debug.indent () in
   let t = kl info tab m in
   let () = Debug.dedent () in
-  mk_clos ~mode (Esubst.subs_id 0, Univ.Instance.empty) ~resolve_rel:true t
+  mk_clos ~mode (Esubst.subs_id 0, Univ.Instance.empty) t
 let _ = eval_lazy_ref := eval_lazy
 
 let _ = klt_ref := klt
@@ -2347,8 +2345,6 @@ let unfold_ref_with_args infos tab fl v =
     end
   | Undef _ | OpaqueDef _ | Primitive _ -> None
 
-let mk_clos = mk_clos ~resolve_rel:true
-let mk_clos_vect = mk_clos_vect ~resolve_rel:true
 let inductive_subst = inductive_subst ~mode:NormalWhnf
 let inject = inject ~mode:NormalWhnf
 let unfold_projection = unfold_projection ~mode:NormalWhnf
