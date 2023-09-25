@@ -710,12 +710,8 @@ let kl_ref = ref (fun _ _ _ -> assert false)
 
 let to_usubs ~mode : Constr.t lazy_t Esubst.subs * Univ.Instance.t -> usubs = fun (e, u) ->
   let f l cl =
-    let m =
-      lazy (
-        let empty = (Esubst.subs_id 0, Univ.Instance.empty) in
-        mk_clos ~mode empty (Constr.exliftn l (Lazy.force cl))
-      )
-    in
+    let e = (Esubst.subs_of_lift l, Univ.Instance.empty) in
+    let m = lazy (mk_clos ~mode e ((Lazy.force cl))) in
     {mark = Red; term = FLAZY m; mode}
   in
   let e = Esubst.lift_subst f Esubst.el_id e in

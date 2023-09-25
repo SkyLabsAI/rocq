@@ -260,6 +260,12 @@ let rec lift_subst mk e s = match s with
   let rem = lift_subst mk e rem in
   Cons (h, t, rem)
 
+let rec subs_of_lift (l : lift) : 'a subs =
+  match l with
+  | ELID -> Nil (0, 0)
+  | ELSHFT (l, n) -> subs_shft (n, (subs_of_lift l))
+  | ELLFT (n, l) -> subs_liftn n (subs_of_lift l)
+
 module Internal =
 struct
 
