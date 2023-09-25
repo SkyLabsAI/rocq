@@ -2021,7 +2021,7 @@ let rec kl info tab m =
     zip_term info tab (norm_head info tab nm) s
 
 and klt ~mode info tab (e : usubs) t =
-  if debug_on () then Debug.line "klt: %a %a _ _ (%a)" pp_mode mode pp_info info pp_constr t;
+  if debug_on () then Debug.line "klt: %a %a _ (%a) %a" pp_mode mode pp_info info pp_constr t pp_usubs e;
   match kind t with
 | Rel i ->
   begin match Esubst.expand_rel i (fst e) with
