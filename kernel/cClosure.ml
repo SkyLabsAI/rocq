@@ -740,7 +740,7 @@ let subst_constr ~mode info tab =
       if debug_on () then Debug.line "subst_constr: (Block,res) %a" pp_constr res;
       res
     | Primitive CPrimitives.Unblock when nargs >= 2 ->
-      let res_cmp = Constr.map_with_binders usubs_lift subst_constr e c in
+      (* let res_cmp = Constr.map_with_binders usubs_lift subst_constr e c in *)
 
       if debug_on () then Debug.line "subst_constr: (Unblock,subs)";
       Debug.indent ();
@@ -751,7 +751,7 @@ let subst_constr ~mode info tab =
       let res = !klt_ref ~mode info tab e c in
       Debug.dedent ();
       if debug_on () then Debug.line "subst_constr: (Unblock,res) %a" pp_constr res;
-      if debug_on () then Debug.line "subst_constr: (Unblock,cmp) %a" pp_constr res_cmp;
+      (* if debug_on () then Debug.line "subst_constr: (Unblock,cmp) %a" pp_constr res_cmp; *)
       res
     | _ -> Constr.map_with_binders usubs_lift subst_constr e c
     end
