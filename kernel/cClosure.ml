@@ -1741,7 +1741,7 @@ let rec knh info tab m stk =
        FArray _|FPrimitive _ |FBlock _) -> (m, stk)
 
 and knht_app ~mode ~lexical info tab e h args stk =
-  if debug_on () then Debug.line "knht_app: %a lexical:%b %a _ %a (%a) %a (%a)" pp_mode mode lexical pp_info info pp_usubs e pp_constr h (pp_array pp_constr) args  pp_stack stk;
+  if debug_on () then Debug.line "knht_app: %a lexical:%b %a _ (%a) %a %a (%a)" pp_mode mode lexical pp_info info pp_constr h (pp_array pp_constr) args pp_usubs e pp_stack stk;
   match destruct_app ~mode info tab h args with
   | Application (h,args) ->
       if debug_on () then Debug.line "destruct_app: application";
@@ -1767,7 +1767,7 @@ and knht_app ~mode ~lexical info tab e h args stk =
 
 (* The same for pure terms *)
 and knht ~mode info tab (e : usubs) t stk : fconstr * stack =
-  if debug_on () then Debug.line "knht: %a %a _ %a (%a) (%a)" pp_mode mode pp_info info pp_usubs e pp_constr t pp_stack stk;
+  if debug_on () then Debug.line "knht: %a %a _ (%a) %a (%a)" pp_mode mode pp_info info pp_constr t pp_usubs e pp_stack stk;
   match kind t with
     | App(h,args) -> knht_app ~mode ~lexical:true info tab e h args stk
     | Case(ci,u,pms,p,NoInvert,t,br) ->
@@ -2185,7 +2185,7 @@ let norm_val info tab v =
   if debug_on () then Debug.line "norm_val: %a _ (%a)" pp_info info pp_fconstr v;
   kl info tab v
 let norm_term ?(mode=NormalFull) info tab e t =
-  if debug_on () then Debug.line "norm_term: in %a %a _ %a (%a)" pp_mode mode pp_info info pp_usubs e pp_constr t;
+  if debug_on () then Debug.line "norm_term: in %a %a _ (%a) %a" pp_mode mode pp_info info pp_constr t pp_usubs e;
   Debug.indent ();
   let res = klt ~mode info tab e t in
   Debug.dedent ();
