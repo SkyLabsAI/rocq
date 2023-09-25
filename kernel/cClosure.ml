@@ -323,8 +323,8 @@ module Debug = struct
         out "FAtom(%a)" pp_constr c
     | FFlex k ->
         out "FFlex(%a)" pp_table_key k
-    | FInd _ ->
-        out "FInd(_)"
+    | FInd i ->
+        out "FInd((%s,%i))" ((Names.MutInd.debug_to_string (fst (fst i)))) (snd (fst i))
     | FConstruct (((i,n),m),_) ->
         out "FConstruct(%s,%i,%i)" (Names.MutInd.to_string i) n m
     | FApp (h, args) ->
