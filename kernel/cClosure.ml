@@ -1713,7 +1713,11 @@ let rec knh info tab m stk =
     | FLIFT(k,a) -> knh info tab a (zshift k stk)
     | FCLOS(t,e) -> knht ~mode:m.mode info tab e t (zupdate info m stk)
     | FLOCKED -> assert false
-    | FLAZY (lazy m) -> knh info tab m stk
+    | FLAZY (l) ->
+      Debug.indent ();
+      let (lazy m1) = l in
+      Debug.dedent ();
+      knh info tab m1 (zupdate info m stk)
     | FApp(a,b) -> knh info tab a (append_stack b (zupdate info m stk))
     | FCaseT(ci,u,pms,p,t,br,e) ->
       if is_irrelevant info ci.ci_relevance then
