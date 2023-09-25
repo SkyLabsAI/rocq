@@ -276,7 +276,7 @@ module Debug = struct
     | LetIn (na,b,t,c) ->
         out "LetIn(%a, %a, %a, %a)" pp_name na.binder_name pp b pp t pp c
     | App (c,l) ->
-        out "App(%a, [|%a|])" pp c (pp_array pp) l
+        out "App(%a, %a)" pp c (pp_array pp) l
     | Evar (e,l) ->
         out "Evar(%i, [%a])" (Evar.repr e) (pp_slist pp) l
     | Const (c,_) ->
