@@ -493,6 +493,99 @@ let clos_rel ~mode ((e, _) : usubs) i =
     | Inr(k,Some p) ->
         lift_fconstr (k-p) {mark=Red;term=FFlex(RelKey p); mode}
 
+(* Substitute in fconstr *)
+(* let rec subs_subs l ((e_new,u_new) : usubs) ((e_old,u_old) : usubs) = *)
+(*   let f _l m = *)
+(*     subs_fconstr m (e_new, u_new) *)
+(*   in *)
+(*   let e = Esubst.lift_subst f l e_old in *)
+(*   (e,Univ.subst_instance_instance u_new u_old) *)
+
+(* and subs_fconstr m (e : usubs) = *)
+(*   let subs_fconstr m = subs_fconstr m e in *)
+(*   match m.term with *)
+(*   | FRel i -> clos_rel ~mode:m.mode e i *)
+(*   | FAtom t -> {m with term=FAtom (subst_instance_constr (snd e) t)} *)
+(*   | FFlex _ -> m *)
+(*   | FInd (ind,u) -> {m with term=FInd(ind, Univ.subst_instance_instance (snd e) u)} *)
+(*   | FConstruct (cstr,u) -> {m with term=FConstruct(cstr, Univ.subst_instance_instance (snd e) u)} *)
+(*   | FApp (h, args) -> {m with term=FApp(subs_fconstr h, Array.map subs_fconstr args)} *)
+(*   | FProj (p, c) -> {m with term=FProj(p, subs_fconstr c)} *)
+(*   | FFix (f, e2) -> {m with term=FFix(f,subs_subs Esubst.el_id e e2)} *)
+(*   | FCoFix (f, e2) -> {m with term=FCoFix(f,subs_subs Esubst.el_id e e2)} *)
+(*   | FCaseT (a, b, c, d, f, g, e2) -> *)
+(*     {m with term=FCaseT(a,b,c,d,subs_fconstr f, g, subs_subs Esubst.el_id e e2)} *)
+(*   | FCaseInvert (a, b, c, d, f, g, h, e2) -> *)
+(*     {m with term=FCaseInvert (a, b, c, d, Array.map subs_fconstr f, subs_fconstr g, h, subs_subs Esubst.el_id e e2)} *)
+(*   | FLambda (n, tys, b, e2) -> *)
+(*     {m with term=FLambda(n, tys, b, subs_subs Esubst.el_id e e2)} *)
+(*   | FProd (na, ty, b, e2) -> *)
+(*     {m with term=FProd(na, subs_fconstr ty, b, subs_subs Esubst.el_id e e2)} *)
+(*   | FLetIn (na, ty, x, c, e2) -> *)
+(*     {m with term=FLetIn(na, subs_fconstr ty, subs_fconstr x, c, subs_subs Esubst.el_id e e2)} *)
+(*   | FEvar (v, i, e2, repack) -> *)
+(*     {m with term=FEvar(v, i, subs_subs Esubst.el_id e e2, repack)} *)
+(*   | FArray (u, ar, ty) -> *)
+(*     {m with term=FArray(Univ.subst_instance_instance (snd e )u, Parray.map subs_fconstr ar, subs_fconstr ty)} *)
+(*   | FLIFT (i, t) -> {m with term=FLIFT(i,subs_fconstr t)} *)
+(*   | FCLOS (t, e2) -> {m with term=FCLOS(t,subs_subs Esubst.el_id e e2)} *)
+(*   | FPrimitive (a, b, c, d) -> *)
+(*     {m with term=FPrimitive(a, (fst b, Univ.subst_instance_instance (snd e) (snd b)), subs_fconstr c, Array.map subs_fconstr d)} *)
+(*   | FBlock (a, b, c, e2) -> {m with term=FBlock(a, b, c, subs_subs Esubst.el_id e e2)} *)
+(*   | FEta (a, b, c, d, e2) -> {m with term=FEta(a, b, c, d, subs_subs Esubst.el_id e e2)} *)
+(*   | FLAZY t -> {m with term=FLAZY(lazy (subs_fconstr (Lazy.force t)))} *)
+(*   | FInt _ -> m *)
+(*   | FFloat _ -> m *)
+(*   | FIrrelevant -> m *)
+(*   | FLOCKED -> m *)
+
+
+let rec subs_subs (l,u) ((e_old,u_old) : usubs) =
+  let f l m =
+    mk_red (FLAZY (lazy (el_fconstr (l, u) m)))
+  in
+  let e = Esubst.lift_subst f l e_old in
+  (e,Univ.subst_instance_instance u u_old)
+
+and el_fconstr (e : Esubst.lift * Univ.Instance.t) m =
+  let el_fconstr = el_fconstr e in
+  match m.term with
+  | FRel i -> {m with term=FRel(Esubst.reloc_rel i (fst e))}
+  | FAtom t -> {m with term=FAtom (subst_instance_constr (snd e) t)}
+  | FFlex _ -> m
+  | FInd (ind,u) -> {m with term=FInd(ind, Univ.subst_instance_instance (snd e) u)}
+  | FConstruct (cstr,u) -> {m with term=FConstruct(cstr, Univ.subst_instance_instance (snd e) u)}
+  | FApp (h, args) -> {m with term=FApp(el_fconstr h, Array.map el_fconstr args)}
+  | FProj (p, c) -> {m with term=FProj(p, el_fconstr c)}
+  | FFix (f, e2) -> {m with term=FFix(f,subs_subs e e2)}
+  | FCoFix (f, e2) -> {m with term=FCoFix(f,subs_subs e e2)}
+  | FCaseT (a, b, c, d, f, g, e2) ->
+    {m with term=FCaseT(a,b,c,d,el_fconstr f, g, subs_subs e e2)}
+  | FCaseInvert (a, b, c, d, f, g, h, e2) ->
+    {m with term=FCaseInvert (a, b, c, d, Array.map el_fconstr f, el_fconstr g, h, subs_subs e e2)}
+  | FLambda (n, tys, b, e2) ->
+    {m with term=FLambda(n, tys, b, subs_subs e e2)}
+  | FProd (na, ty, b, e2) ->
+    {m with term=FProd(na, el_fconstr ty, b, subs_subs e e2)}
+  | FLetIn (na, ty, x, c, e2) ->
+    {m with term=FLetIn(na, el_fconstr ty, el_fconstr x, c, subs_subs e e2)}
+  | FEvar (v, i, e2, repack) ->
+    {m with term=FEvar(v, i, subs_subs e e2, repack)}
+  | FArray (u, ar, ty) ->
+    {m with term=FArray(Univ.subst_instance_instance (snd e )u, Parray.map el_fconstr ar, el_fconstr ty)}
+  | FLIFT (i, t) -> {m with term=FLIFT(i,el_fconstr t)}
+  | FCLOS (t, e2) -> {m with term=FCLOS(t,subs_subs e e2)}
+  | FPrimitive (a, b, c, d) ->
+    {m with term=FPrimitive(a, (fst b, Univ.subst_instance_instance (snd e) (snd b)), el_fconstr c, Array.map el_fconstr d)}
+  | FBlock (a, b, c, e2) -> {m with term=FBlock(a, b, c, subs_subs e e2)}
+  | FEta (a, b, c, d, e2) -> {m with term=FEta(a, b, c, d, subs_subs e e2)}
+  | FLAZY t -> {m with term=FLAZY(lazy (el_fconstr (Lazy.force t)))}
+  | FInt _ -> m
+  | FFloat _ -> m
+  | FIrrelevant -> m
+  | FLOCKED -> m
+
+
 (* since the head may be reducible, we might introduce lifts of 0 *)
 let compact_stack head stk =
   let rec strip_rec depth = function
@@ -708,14 +801,36 @@ let mk_clos_vect ~mode env v =
 let klt_ref = ref (fun ~mode:_ _ _ _ _ -> assert false)
 let kl_ref = ref (fun _ _ _ -> assert false)
 
-let to_usubs ~mode : Constr.t lazy_t Esubst.subs * Univ.Instance.t -> usubs = fun (e, u) ->
-  let f l cl =
-    let e = (Esubst.subs_of_lift l, Univ.Instance.empty) in
-    let m = lazy (mk_clos ~mode e ((Lazy.force cl))) in
-    {mark = Red; term = FLAZY m; mode}
-  in
-  let e = Esubst.lift_subst f Esubst.el_id e in
-  (e, u)
+type tcs = (fconstr Lazy.t * Constr.t Lazy.t) Esubst.subs
+type tcsu = tcs * Univ.Instance.t
+
+let tcs_lookup_constr (i : int) (t : tcs) : Constr.t =
+  begin match Esubst.expand_rel i t with
+  | Inl (k, (_, lazy v)) -> Vars.lift k v
+  | Inr (m, _) -> mkRel m
+  end
+
+type tclu = Esubst.lift * Univ.Instance.t
+
+let tcsu_usubs_combine (to_constr : tclu -> fconstr -> Constr.t) (t : tclu) (e : usubs) : tcsu =
+  Esubst.lift_subst (fun el c ->
+      let m = lazy (el_fconstr (el, snd t) c) in
+      let t = lazy (to_constr (el,snd t) c) in
+      (m, t)
+    ) (fst t) (fst e), (snd e)
+
+let tcsu_to_usubs (t : tcsu) : usubs =
+  let f (m, _) = mk_red (FLAZY m) in
+  Esubst.map_subst f (fst t), snd t
+
+(* let to_usubs ~mode : Constr.t lazy_t Esubst.subs * Univ.Instance.t -> usubs = fun (e, u) -> *)
+(*   let f l cl = *)
+(*     let e = (Esubst.subs_of_lift l, Univ.Instance.empty) in *)
+(*     let m = lazy (mk_clos ~mode e ((Lazy.force cl))) in *)
+(*     {mark = Red; term = FLAZY m; mode} *)
+(*   in *)
+(*   let e = Esubst.lift_subst f Esubst.el_id e in *)
+(*   (e, u) *)
 
 let subst_constr ~mode info tab =
   let rec subst_constr (subst,usubst as e) c = match [@ocaml.warning "-4"] Constr.kind c with
@@ -727,7 +842,7 @@ let subst_constr ~mode info tab =
     | Primitive CPrimitives.Block   when nargs == 2 ->
       if debug_on () then Debug.line "subst_constr: (Block,subs)";
       Debug.indent ();
-      let e = to_usubs ~mode e in
+      let e = tcsu_to_usubs e in
       Debug.dedent ();
       if debug_on () then Debug.line "subst_constr: (Block,klt)";
       Debug.indent ();
@@ -740,7 +855,7 @@ let subst_constr ~mode info tab =
 
       if debug_on () then Debug.line "subst_constr: (Unblock,subs)";
       Debug.indent ();
-      let e = to_usubs ~mode e in
+      let e = tcsu_to_usubs e in
       Debug.dedent ();
       if debug_on () then Debug.line "subst_constr: (Unblock,klt)";
       Debug.indent ();
@@ -752,11 +867,7 @@ let subst_constr ~mode info tab =
     | _ -> Constr.map_with_binders usubs_lift subst_constr e c
     end
 
-  | Rel i ->
-    begin match Esubst.expand_rel i subst with
-    | Inl (k, lazy v) -> Vars.lift k v
-    | Inr (m, _) -> mkRel m
-    end
+  | Rel i -> tcs_lookup_constr i subst
   | Const _ | Ind _ | Construct _ | Sort _ -> subst_instance_constr usubst c
   | Case (ci, u, pms, p, iv, discr, br) ->
     let u' = usubst_instance e u in
@@ -796,8 +907,8 @@ let rec to_constr ~(info:clos_infos) ~(tab:clos_tab) ((lfts, usubst) as ulfts) v
   if debug_on () then Debug.line "to_constr: (%a) _ _ (%a)" pp_info info pp_fconstr v;
   let to_constr = to_constr ~info ~tab in
   let subst_constr = subst_constr ~mode:v.mode info tab in
-  let comp_subs (el,u) ((s,u'):usubs) =
-    Esubst.lift_subst (fun el c -> lazy (to_constr (el,u) c)) el s, u'
+  let comp_subs (el,u) ((s,u'):usubs) = tcsu_usubs_combine to_constr (el,u) (s,u')
+  (*   Esubst.lift_subst (fun el c -> lazy (to_constr (el,u) c)) el s, u' *)
   in
   let to_constr_case (lfts,_ as ulfts) ci u pms p iv c ve env =
     let subs = comp_subs ulfts env in
