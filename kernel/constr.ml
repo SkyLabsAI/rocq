@@ -88,6 +88,13 @@ type ('types,'r) pcase_return = ((Name.t,'r) Context.pbinder_annot array * 'type
 type ('constr, 'types, 'univs, 'r) pcase =
   case_info * 'univs * 'constr array * ('types,'r) pcase_return * 'constr pcase_invert * 'constr * ('constr, 'r) pcase_branch array
 
+type ('constr, 'types, 'r) pblock_entry = {
+  pbe_context : ('constr, 'types, 'r) Context.Rel.pt;
+  pbe_type : 'types;
+  pbe_value : 'constr;
+  pbe_relevance : 'r;
+}
+
 (* [Var] is used for named variables and [Rel] for variables as
    de Bruijn indices. *)
 type ('constr, 'types, 'sort, 'univs, 'r) kind_of_term =
@@ -112,6 +119,8 @@ type ('constr, 'types, 'sort, 'univs, 'r) kind_of_term =
   | Float     of Float64.t
   | String    of Pstring.t
   | Array     of 'univs * 'constr array * 'constr * 'types
+  | PBlock    of 'univs * 'types * ('constr, 'types, 'r) pblock_entry array * 'constr
+  | PRun      of 'types * 'types * 'constr * 'constr
 
 (* constr is the fixpoint of the previous type. *)
 type t = T of (t, t, Sorts.t, Instance.t, Sorts.relevance) kind_of_term [@@unboxed]
@@ -127,6 +136,7 @@ type case = (constr, types, Instance.t, Sorts.relevance) pcase
 type rec_declaration = (constr, types, Sorts.relevance) prec_declaration
 type fixpoint = (constr, types, Sorts.relevance) pfixpoint
 type cofixpoint = (constr, types, Sorts.relevance) pcofixpoint
+type block_entry = (constr, types, Sorts.relevance) pblock_entry
 type 'a binder_annot = ('a,Sorts.relevance) Context.pbinder_annot
 
 (************************************************************************)
@@ -462,6 +472,9 @@ let mkInt i = of_kind @@ Int i
 (* Constructs an array *)
 let mkArray (u,t,def,ty) = of_kind @@ Array (u,t,def,ty)
 
+let mkPBlock (u,ty,ctx,t) = of_kind @@ PBlock (u,ty,ctx,t)
+let mkPRun (ty,k,b,cont) = of_kind @@ PRun (ty,k,b,cont)
+
 (* Constructs a primitive float number *)
 let mkFloat f = of_kind @@ Float f
 
@@ -487,6 +500,101 @@ let fold_invert f acc = function
   | CaseInvert {indices} ->
     Array.fold_left f acc indices
 
+let fold_rel_declaration f acc = function
+  | Rel.Declaration.LocalAssum (_, ty) -> f acc ty
+  | Rel.Declaration.LocalDef (_, value, ty) -> f (f acc value) ty
+
+let fold_pblock_entry f acc { pbe_context; pbe_type; pbe_value; _ } =
+  let acc = Rel.fold_outside
+    (fun decl acc -> fold_rel_declaration f acc decl) pbe_context ~init:acc in
+  f (f acc pbe_type) pbe_value
+
+let iter_rel_declaration f = function
+  | Rel.Declaration.LocalAssum (_, ty) -> f ty
+  | Rel.Declaration.LocalDef (_, value, ty) -> f value; f ty
+
+let iter_pblock_entry f { pbe_context; pbe_type; pbe_value; _ } =
+  Rel.fold_outside (fun decl () -> iter_rel_declaration f decl) pbe_context ~init:();
+  f pbe_type;
+  f pbe_value
+
+let map_pblock_entry f ({ pbe_context; pbe_type; pbe_value; _ } as entry) =
+  let context' = Rel.map f pbe_context in
+  let type' = f pbe_type in
+  let value' = f pbe_value in
+  if context' == pbe_context && type' == pbe_type && value' == pbe_value
+  then entry
+  else { entry with pbe_context = context'; pbe_type = type'; pbe_value = value' }
+
+let fold_map_rel_declaration f acc = function
+  | Rel.Declaration.LocalAssum (na, ty) as decl ->
+    let acc, ty' = f acc ty in
+    acc, if ty' == ty then decl else Rel.Declaration.LocalAssum (na, ty')
+  | Rel.Declaration.LocalDef (na, value, ty) as decl ->
+    let acc, value' = f acc value in
+    let acc, ty' = f acc ty in
+    acc,
+    if value' == value && ty' == ty then decl
+    else Rel.Declaration.LocalDef (na, value', ty')
+
+let fold_map_rel_context f acc context =
+  List.fold_right
+    (fun decl (acc, context) ->
+      let acc, decl = fold_map_rel_declaration f acc decl in
+      acc, decl :: context)
+    context (acc, [])
+
+let fold_map_pblock_entry f acc ({ pbe_context; pbe_type; pbe_value; _ } as entry) =
+  let acc, context' = fold_map_rel_context f acc pbe_context in
+  let acc, type' = f acc pbe_type in
+  let acc, value' = f acc pbe_value in
+  acc,
+  if context' == pbe_context && type' == pbe_type && value' == pbe_value
+  then entry
+  else { entry with pbe_context = context'; pbe_type = type'; pbe_value = value' }
+
+let iter_pblock_entry_with_binders g f l hidden entry =
+  let l = iterate g hidden l in
+  Rel.fold_outside
+    (fun decl l ->
+      iter_rel_declaration (f l) decl;
+      g l)
+    entry.pbe_context ~init:l
+  |> fun l ->
+  f l entry.pbe_type;
+  f l entry.pbe_value
+
+let fold_pblock_entry_with_binders g f n hidden acc entry =
+  let n = iterate g hidden n in
+  let n, acc =
+    Rel.fold_outside
+      (fun decl (n, acc) -> g n, fold_rel_declaration (f n) acc decl)
+      entry.pbe_context ~init:(n, acc)
+  in
+  f n (f n acc entry.pbe_type) entry.pbe_value
+
+let map_pblock_entry_with_binders g f l hidden
+    ({ pbe_context; pbe_type; pbe_value; _ } as entry) =
+  let l = iterate g hidden l in
+  let context' =
+    Rel.map_with_binders
+      (fun k c -> f (iterate g (k - 1) l) c)
+      pbe_context
+  in
+  let l = iterate g (Rel.length pbe_context) l in
+  let type' = f l pbe_type in
+  let value' = f l pbe_value in
+  if context' == pbe_context && type' == pbe_type && value' == pbe_value
+  then entry
+  else { entry with pbe_context = context'; pbe_type = type'; pbe_value = value' }
+
+let map_pblock_entries_with_binders g f l entries =
+  let entries' =
+    Array.mapi (fun hidden entry ->
+      map_pblock_entry_with_binders g f l hidden entry) entries
+  in
+  if Array.for_all2 (==) entries entries' then entries else entries'
+
 let fold f acc c = match kind c with
   | (Rel _ | Meta _ | Var _   | Sort _ | Const _ | Ind _
     | Construct _ | Int _ | Float _ | String _) -> acc
@@ -505,6 +613,10 @@ let fold f acc c = match kind c with
     Array.fold_left2 (fun acc t b -> f (f acc t) b) acc tl bl
   | Array(_u,t,def,ty) ->
     f (f (Array.fold_left f acc t) def) ty
+  | PBlock (_u,ty,entries,t) ->
+    f (Array.fold_left (fold_pblock_entry f) (f acc ty) entries) t
+  | PRun (ty,k,b,cont) ->
+    f (f (f (f acc ty) k) b) cont
 
 (* [iter f c] iters [f] on the immediate subterms of [c]; it is
    not recursive and the order with which subterms are processed is
@@ -530,6 +642,9 @@ let iter f c = match kind c with
   | Fix (_,(_,tl,bl)) -> Array.iter f tl; Array.iter f bl
   | CoFix (_,(_,tl,bl)) -> Array.iter f tl; Array.iter f bl
   | Array(_u,t,def,ty) -> Array.iter f t; f def; f ty
+  | PBlock (_u,ty,entries,t) ->
+    f ty; Array.iter (iter_pblock_entry f) entries; f t
+  | PRun (ty,k,b,cont) -> f ty; f k; f b; f cont
 
 (* [iter_with_binders g f n c] iters [f n] on the immediate
    subterms of [c]; it carries an extra data [n] (typically a lift
@@ -561,6 +676,11 @@ let iter_with_binders g f n c = match kind c with
       Array.Fun1.iter f (iterate g (Array.length tl) n) bl
   | Array(_u,t,def,ty) ->
     Array.iter (f n) t; f n def; f n ty
+  | PBlock (_u,ty,entries,t) ->
+    f n ty;
+    Array.iteri (iter_pblock_entry_with_binders g f n) entries;
+    f (iterate g (Array.length entries) n) t
+  | PRun (ty,k,b,cont) -> f n ty; f n k; f n b; f n cont
 
 (* [fold_constr_with_binders g f n acc c] folds [f n] on the immediate
    subterms of [c] starting from [acc] and proceeding from left to
@@ -595,6 +715,14 @@ let fold_constr_with_binders g f n acc c =
       Array.fold_left (fun acc (t,b) -> f n' (f n acc t) b) acc fd
   | Array(_u,t,def,ty) ->
     f n (f n (Array.fold_left (f n) acc t) def) ty
+  | PBlock (_u,ty,entries,t) ->
+    let acc = Array.fold_left_i
+      (fun i acc entry -> fold_pblock_entry_with_binders g f n i acc entry)
+      (f n acc ty) entries
+    in
+    f (iterate g (Array.length entries) n) acc t
+  | PRun (ty,k,b,cont) ->
+    f n (f n (f n (f n acc ty) k) b) cont
 
 (* [map f c] maps [f] on the immediate subterms of [c]; it is
    not recursive and the order with which subterms are processed is
@@ -695,6 +823,19 @@ let map f c = match kind c with
     let ty' = f ty in
     if def'==def && t==t' && ty==ty' then c
     else mkArray(u,t',def',ty')
+  | PBlock (u,ty,entries,t) ->
+    let ty' = f ty in
+    let entries' = Array.Smart.map (map_pblock_entry f) entries in
+    let t' = f t in
+    if ty' == ty && entries' == entries && t' == t then c
+    else mkPBlock (u,ty',entries',t')
+  | PRun (ty,k,b,cont) ->
+    let ty' = f ty in
+    let k' = f k in
+    let b' = f b in
+    let cont' = f cont in
+    if ty' == ty && k' == k && b' == b && cont' == cont then c
+    else mkPRun (ty',k',b',cont')
 
 (* Like {!map} but with an accumulator. *)
 
@@ -780,6 +921,19 @@ let fold_map f accu c = match kind c with
     let accu, ty' = f accu ty in
     if def'==def && t==t' && ty==ty' then accu, c
     else accu, mkArray(u,t',def',ty')
+  | PBlock (u,ty,entries,t) ->
+    let accu, ty' = f accu ty in
+    let accu, entries' = Array.Smart.fold_left_map (fold_map_pblock_entry f) accu entries in
+    let accu, t' = f accu t in
+    if ty' == ty && entries' == entries && t' == t then accu, c
+    else accu, mkPBlock (u,ty',entries',t')
+  | PRun (ty,k,b,cont) ->
+    let accu, ty' = f accu ty in
+    let accu, k' = f accu k in
+    let accu, b' = f accu b in
+    let accu, cont' = f accu cont in
+    if ty' == ty && k' == k && b' == b && cont' == cont then accu, c
+    else accu, mkPRun (ty',k',b',cont')
 
 (* [map_with_binders g f n c] maps [f n] on the immediate
    subterms of [c]; it carries an extra data [n] (typically a lift
@@ -849,6 +1003,19 @@ let map_with_binders g f l c0 = match kind c0 with
     let ty' = f l ty in
     if def'==def && t==t' && ty==ty' then c0
     else mkArray(u,t',def',ty')
+  | PBlock (u,ty,entries,t) ->
+    let ty' = f l ty in
+    let entries' = map_pblock_entries_with_binders g f l entries in
+    let t' = f (iterate g (Array.length entries) l) t in
+    if ty' == ty && entries' == entries && t' == t then c0
+    else mkPBlock (u,ty',entries',t')
+  | PRun (ty,k,b,cont) ->
+    let ty' = f l ty in
+    let k' = f l k in
+    let b' = f l b in
+    let cont' = f l cont in
+    if ty' == ty && k' == k && b' == b && cont' == cont then c0
+    else mkPRun (ty',k',b',cont')
 
 (*********************)
 (*      Lifting      *)
@@ -899,6 +1066,19 @@ let eq_invert eq iv1 iv2 =
 let eq_under_context eq (_nas1, p1) (_nas2, p2) =
   eq p1 p2
 
+let equal_pblock_declaration eq d1 d2 =
+  match d1, d2 with
+  | Rel.Declaration.LocalAssum (_, ty1), Rel.Declaration.LocalAssum (_, ty2) ->
+    eq ty1 ty2
+  | Rel.Declaration.LocalDef (_, value1, ty1), Rel.Declaration.LocalDef (_, value2, ty2) ->
+    eq value1 value2 && eq ty1 ty2
+  | _ -> false
+
+let equal_pblock_entry eq e1 e2 =
+  List.equal (equal_pblock_declaration eq) e1.pbe_context e2.pbe_context &&
+  eq e1.pbe_type e2.pbe_type &&
+  eq e1.pbe_value e2.pbe_value
+
 let compare_head_gen_leq_with kind1 kind2 leq_universes leq_sorts eq_evars eq leq nargs t1 t2 =
   match kind_nocast_gen kind1 t1, kind_nocast_gen kind2 t2 with
   | Cast _, _ | _, Cast _ -> assert false (* kind_nocast *)
@@ -941,9 +1121,15 @@ let compare_head_gen_leq_with kind1 kind2 leq_universes leq_sorts eq_evars eq le
     leq_universes None u1 u2 &&
     Array.equal_norefl (eq 0) t1 t2 &&
     eq 0 def1 def2 && eq 0 ty1 ty2
+  | PBlock (u1,ty1,entries1,t1), PBlock (u2,ty2,entries2,t2) ->
+    leq_universes None u1 u2 && eq 0 ty1 ty2 &&
+    Array.equal_norefl (equal_pblock_entry (eq 0)) entries1 entries2 &&
+    eq 0 t1 t2
+  | PRun (ty1,k1,b1,cont1), PRun (ty2,k2,b2,cont2) ->
+    eq 0 ty1 ty2 && eq 0 k1 k2 && eq 0 b1 b2 && eq 0 cont1 cont2
   | (Rel _ | Meta _ | Var _ | Sort _ | Prod _ | Lambda _ | LetIn _ | App _
     | Proj _ | Evar _ | Const _ | Ind _ | Construct _ | Case _ | Fix _
-    | CoFix _ | Int _ | Float _ | String _ | Array _), _ -> false
+    | CoFix _ | Int _ | Float _ | String _ | Array _ | PBlock _ | PRun _), _ -> false
 
 (* [compare_head_gen_leq u s eq leq c1 c2] compare [c1] and [c2] using [eq] to compare
    the immediate subterms of [c1] of [c2] for conversion if needed, [leq] for cumulativity,
@@ -1027,6 +1213,18 @@ let constr_ord_int f t1 t2 =
     compare [(Array.compare Int.compare,a1,a2); (Int.compare,i1,i2)]
   in
   let ctx_cmp f (_n1, p1) (_n2, p2) = f p1 p2 in
+  let decl_cmp d1 d2 = match d1, d2 with
+    | Rel.Declaration.LocalAssum (_, ty1), Rel.Declaration.LocalAssum (_, ty2) -> f ty1 ty2
+    | Rel.Declaration.LocalAssum _, Rel.Declaration.LocalDef _ -> -1
+    | Rel.Declaration.LocalDef _, Rel.Declaration.LocalAssum _ -> 1
+    | Rel.Declaration.LocalDef (_, v1, ty1), Rel.Declaration.LocalDef (_, v2, ty2) ->
+      compare [(f, v1, v2); (f, ty1, ty2)]
+  in
+  let entry_cmp e1 e2 = compare [
+    (List.compare decl_cmp, e1.pbe_context, e2.pbe_context);
+    (f, e1.pbe_type, e2.pbe_type);
+    (f, e1.pbe_value, e2.pbe_value);
+  ] in
   match kind t1, kind t2 with
     | Cast (c1,_,_), _ -> f c1 t2
     | _, Cast (c2,_,_) -> f t1 c2
@@ -1083,7 +1281,12 @@ let constr_ord_int f t1 t2 =
     | String _, _ -> -1 | _, String _ -> 1
     | Array(_u1,t1,def1,ty1), Array(_u2,t2,def2,ty2) ->
       compare [(Array.compare f, t1, t2); (f, def1, def2); (f, ty1, ty2)]
-    (*| Array _, _ -> -1 | _, Array _ -> 1*)
+    | Array _, _ -> -1 | _, Array _ -> 1
+    | PBlock (_u1,ty1,entries1,t1), PBlock (_u2,ty2,entries2,t2) ->
+      compare [(f, ty1, ty2); (Array.compare entry_cmp, entries1, entries2); (f, t1, t2)]
+    | PBlock _, _ -> -1 | _, PBlock _ -> 1
+    | PRun (ty1,k1,b1,cont1), PRun (ty2,k2,b2,cont2) ->
+      compare [(f, ty1, ty2); (f, k1, k2); (f, b1, b2); (f, cont1, cont2)]
 
 let rec compare m n=
   constr_ord_int compare m n
@@ -1147,6 +1350,20 @@ let invert_eqeq iv1 iv2 =
 let hasheq_ctx (nas1, c1) (nas2, c2) =
   array_eqeq nas1 nas2 && c1 == c2
 
+let hasheq_pblock_declaration d1 d2 =
+  match d1, d2 with
+  | Rel.Declaration.LocalAssum (na1, ty1), Rel.Declaration.LocalAssum (na2, ty2) ->
+    na1 == na2 && ty1 == ty2
+  | Rel.Declaration.LocalDef (na1, value1, ty1), Rel.Declaration.LocalDef (na2, value2, ty2) ->
+    na1 == na2 && value1 == value2 && ty1 == ty2
+  | _ -> false
+
+let hasheq_pblock_entry e1 e2 =
+  List.equal hasheq_pblock_declaration e1.pbe_context e2.pbe_context &&
+  e1.pbe_type == e2.pbe_type &&
+  e1.pbe_value == e2.pbe_value &&
+  e1.pbe_relevance == e2.pbe_relevance
+
 let hasheq_kind t1 t2 =
   match t1, t2 with
     | Rel n1, Rel n2 -> n1 == n2
@@ -1185,9 +1402,15 @@ let hasheq_kind t1 t2 =
     | String s1, String s2 -> Pstring.equal s1 s2
     | Array(u1,t1,def1,ty1), Array(u2,t2,def2,ty2) ->
       u1 == u2 && def1 == def2 && ty1 == ty2 && array_eqeq t1 t2
+    | PBlock (u1,ty1,entries1,t1), PBlock (u2,ty2,entries2,t2) ->
+      u1 == u2 && ty1 == ty2 &&
+      Array.equal hasheq_pblock_entry entries1 entries2 && t1 == t2
+    | PRun (ty1,k1,b1,cont1), PRun (ty2,k2,b2,cont2) ->
+      ty1 == ty2 && k1 == k2 && b1 == b2 && cont1 == cont2
     | (Rel _ | Meta _ | Var _ | Sort _ | Cast _ | Prod _ | Lambda _ | LetIn _
       | App _ | Proj _ | Evar _ | Const _ | Ind _ | Construct _ | Case _
-      | Fix _ | CoFix _ | Int _ | Float _ | String _ | Array _), _ -> false
+      | Fix _ | CoFix _ | Int _ | Float _ | String _ | Array _ | PBlock _
+      | PRun _), _ -> false
 
 let hasheq t1 t2 = hasheq_kind (kind t1) (kind t2)
 
@@ -1256,6 +1479,19 @@ let rec hash t =
     | String s -> combinesmall 20 (Pstring.hash s)
     | Array(u,t,def,ty) ->
       combinesmall 21 (combine4 (Instance.hash u) (hash_term_array t) (hash def) (hash ty))
+    | PBlock (u,ty,entries,t) ->
+      let hash_decl = function
+        | Rel.Declaration.LocalAssum (_, ty) -> combinesmall 1 (hash ty)
+        | Rel.Declaration.LocalDef (_, value, ty) -> combinesmall 2 (combine (hash value) (hash ty))
+      in
+      let hash_entry entry =
+        let hctx = List.fold_right (fun decl acc -> combine (hash_decl decl) acc) entry.pbe_context 0 in
+        combine3 hctx (hash entry.pbe_type) (hash entry.pbe_value)
+      in
+      let hentries = Array.fold_left (fun acc entry -> combine acc (hash_entry entry)) 0 entries in
+      combinesmall 22 (combine4 (Instance.hash u) (hash ty) hentries (hash t))
+    | PRun (ty,k,b,cont) ->
+      combinesmall 24 (combine4 (hash ty) (hash k) (hash b) (hash cont))
 
 and hash_invert = function
   | NoInvert -> 0
@@ -1447,6 +1683,49 @@ let rec hash_term (t : t) : int * (constr,constr,_,_,_) kind_of_term =
     let hty, ty = sh_rec ty in
     let h = combine4 hu ht hdef hty in
     (combinesmall 21 h, Array(u,t,def,ty))
+  | PBlock (u,ty,entries,b) ->
+    let hash_decl = function
+      | Rel.Declaration.LocalAssum (na, ty) ->
+        let hna, na = hcons_annot na in
+        let hty, ty = sh_rec ty in
+        combine hna hty, Rel.Declaration.LocalAssum (na, ty)
+      | Rel.Declaration.LocalDef (na, value, ty) ->
+        let hna, na = hcons_annot na in
+        let hvalue, value = sh_rec value in
+        let hty, ty = sh_rec ty in
+        combine3 hna hvalue hty, Rel.Declaration.LocalDef (na, value, ty)
+    in
+    let hash_entry { pbe_context; pbe_type; pbe_value; pbe_relevance } =
+      let hcontext, context =
+        List.fold_right
+          (fun decl (hash, context) ->
+            let hdecl, decl = hash_decl decl in
+            combine hdecl hash, decl :: context)
+          pbe_context (0, [])
+      in
+      let htype, pbe_type = sh_rec pbe_type in
+      let hvalue, pbe_value = sh_rec pbe_value in
+      let hrelevance = Sorts.relevance_hash pbe_relevance in
+      combine4 hcontext htype hvalue hrelevance,
+      { pbe_context = context; pbe_type; pbe_value; pbe_relevance }
+    in
+    let hentries, entries =
+      Array.fold_left_map
+        (fun hash entry ->
+          let hentry, entry = hash_entry entry in
+          combine hash hentry, entry)
+        0 entries
+    in
+    let hu, u = Instance.hcons u in
+    let hty, ty = sh_rec ty in
+    let hb, b = sh_rec b in
+    (combinesmall 22 (combine4 hu hty hentries hb), PBlock (u,ty,entries,b))
+  | PRun (ty,k,b,cont) ->
+    let hty, ty = sh_rec ty in
+    let hk, k = sh_rec k in
+    let hb, b = sh_rec b in
+    let hcont, cont = sh_rec cont in
+    (combinesmall 24 (combine4 hty hk hb hcont), PRun (ty,k,b,cont))
 
 and sh_invert civ iv = match civ, iv with
   | NoInvert, NoInvert -> 0, NoInvert
@@ -1602,6 +1881,23 @@ let rec debug_print c =
   | Array(u,t,def,ty) -> str"Array(" ++ prlist_with_sep pr_comma debug_print (Array.to_list t) ++ str" | "
       ++ debug_print def ++ str " : " ++ debug_print ty
       ++ str")@{" ++ UVars.Instance.pr Sorts.QVar.raw_pr Univ.Level.raw_pr u ++ str"}"
+  | PBlock(u,ty,entries,t) ->
+      let print_decl = function
+        | Rel.Declaration.LocalAssum (na, ty) ->
+          Name.print na.binder_name ++ str ":" ++ debug_print ty
+        | Rel.Declaration.LocalDef (na, value, ty) ->
+          Name.print na.binder_name ++ str ":=" ++ debug_print value ++
+          str ":" ++ debug_print ty
+      in
+      let print_entry { pbe_context; pbe_type; pbe_value; _ } =
+        str "[" ++ prlist_with_sep pr_comma print_decl (List.rev pbe_context) ++
+        str "] |- " ++ debug_print pbe_value ++ str ": Blocked " ++ debug_print pbe_type
+      in
+      str"PBlock(" ++ debug_print ty ++ str", [" ++
+      prlist_with_sep pr_comma print_entry (Array.to_list entries) ++ str"], " ++
+      debug_print t ++ str")@{" ++ UVars.Instance.pr Sorts.QVar.raw_pr Univ.Level.raw_pr u ++ str"}"
+  | PRun(ty,k,b,cont) -> str"PRun(" ++ debug_print ty ++ str", " ++ debug_print k ++ str", "
+      ++ debug_print b ++ str", " ++ debug_print cont ++ str")"
 
 and debug_invert = let open Pp in function
   | NoInvert -> mt()

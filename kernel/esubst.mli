@@ -45,6 +45,13 @@ val subs_liftn: int -> 'a subs -> 'a subs
 (** Unary variant of {!subst_liftn}. *)
 val subs_lift: 'a subs -> 'a subs
 
+(** Assuming Γ ⊢ σ : Δ, Δ' and |Δ'| = n, then Γ ⊢ subs_popn n σ : Δ *)
+val subs_popn: int -> 'a subs -> 'a subs
+val subs_pop: 'a subs -> 'a subs
+
+(** Composition of explicit substitutions. *)
+val comp : ('a subs -> 'b -> 'a) -> (int -> 'a -> 'a) -> 'a subs -> 'b subs -> 'a subs
+
 (** [expand_rel k subs] expands de Bruijn [k] in the explicit substitution
     [subs]. The result is either [Inl (lams, v)] when the variable is
     substituted by value [v] under [lams] binders (i.e. [v] *has* to be
@@ -103,6 +110,10 @@ val is_lift_id : lift -> bool
     That is, if [Γ ⊢ e : Δ] and [Δ ⊢ σ : Ξ], then [Γ ⊢ lift_subst mk e σ : Ξ].
 *)
 val lift_subst : (lift -> 'a -> 'b) -> lift -> 'a subs -> 'b subs
+
+val map_subst : ('a -> 'b) -> 'a subs -> 'b subs
+
+val subs_of_lift : lift -> 'a subs
 
 (** Structural equality for lifts *)
 val eq_lift : lift -> lift -> bool

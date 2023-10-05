@@ -616,6 +616,39 @@ let map_constr_with_binders_left_to_right env sigma g f l c =
       let ty' = f l ty in
       if def' == def && t' == t && ty' == ty then c
       else mkArray(u,t',def',ty')
+  | PBlock (u,ty,entries,t) ->
+      let ty' = f l ty in
+      let body_l, entries' = Array.fold_left_map
+        (fun entry_l entry ->
+          let context', context_l = List.fold_right
+            (fun decl (context, context_l) ->
+              let decl' = RelDecl.map_constr (f context_l) decl in
+              decl' :: context, g decl context_l)
+            entry.pbe_context ([], entry_l)
+          in
+          let type' = f context_l entry.pbe_type in
+          let value' = f context_l entry.pbe_value in
+          let hidden_type = it_mkProd_or_LetIn entry.pbe_type entry.pbe_context in
+          let body_l = g (LocalAssum
+            (Context.make_annot Anonymous entry.pbe_relevance, hidden_type)) entry_l
+          in
+          body_l,
+          if context' == entry.pbe_context && type' == entry.pbe_type && value' == entry.pbe_value
+          then entry
+          else { entry with pbe_context = context'; pbe_type = type'; pbe_value = value' })
+        l entries
+      in
+      let entries' = if Array.for_all2 (==) entries entries' then entries else entries' in
+      let t' = f body_l t in
+      if ty' == ty && entries' == entries && t' == t then c
+      else mkPBlock (u,ty',entries',t')
+  | PRun (ty,k,b,cont) ->
+      let ty' = f l ty in
+      let k' = f l k in
+      let b' = f l b in
+      let cont' = f l cont in
+      if ty' == ty && k' == k && b' == b && cont' == cont then c
+      else mkPRun (ty',k',b',cont')
 
 (* strong *)
 let map_constr_with_full_binders env sigma g f l cstr =
@@ -682,6 +715,39 @@ let map_constr_with_full_binders env sigma g f l cstr =
       let def' = f l def in
       let ty' = f l ty in
       if def==def' && t == t' && ty==ty' then cstr else mkArray (u,t', def',ty')
+  | PBlock (u,ty,entries,t) ->
+      let ty' = f l ty in
+      let body_l, entries' = Array.fold_left_map
+        (fun entry_l entry ->
+          let context', context_l = List.fold_right
+            (fun decl (context, context_l) ->
+              let decl' = RelDecl.map_constr (f context_l) decl in
+              decl' :: context, g decl context_l)
+            entry.pbe_context ([], entry_l)
+          in
+          let type' = f context_l entry.pbe_type in
+          let value' = f context_l entry.pbe_value in
+          let hidden_type = it_mkProd_or_LetIn entry.pbe_type entry.pbe_context in
+          let body_l = g (LocalAssum
+            (Context.make_annot Anonymous entry.pbe_relevance, hidden_type)) entry_l
+          in
+          body_l,
+          if context' == entry.pbe_context && type' == entry.pbe_type && value' == entry.pbe_value
+          then entry
+          else { entry with pbe_context = context'; pbe_type = type'; pbe_value = value' })
+        l entries
+      in
+      let entries' = if Array.for_all2 (==) entries entries' then entries else entries' in
+      let t' = f body_l t in
+      if ty' == ty && entries' == entries && t' == t then cstr
+      else mkPBlock (u,ty',entries',t')
+  | PRun (ty,k,b,cont) ->
+      let ty' = f l ty in
+      let k' = f l k in
+      let b' = f l b in
+      let cont' = f l cont in
+      if ty' == ty && k' == k && b' == b && cont' == cont then cstr
+      else mkPRun (ty',k',b',cont')
 
 (* [fold_constr_with_binders g f n acc c] folds [f n] on the immediate
    subterms of [c] starting from [acc] and proceeding from left to
@@ -717,6 +783,25 @@ let fold_constr_with_full_binders env sigma g f n acc c =
       let fd = Array.map2 (fun t b -> (t,b)) tl bl in
       Array.fold_left (fun acc (t,b) -> f n' (f n acc t) b) acc fd
   | Array(_u,t,def,ty) -> f n (f n (Array.fold_left (f n) acc t) def) ty
+  | PBlock (_u,ty,entries,t) ->
+    let n, acc = Array.fold_left
+      (fun (entry_n, acc) entry ->
+        let context_n, acc = Context.Rel.fold_outside
+          (fun decl (context_n, acc) ->
+            let acc = RelDecl.fold_constr (fun term acc -> f context_n acc term) decl acc in
+            g decl context_n, acc)
+          entry.pbe_context ~init:(entry_n, acc)
+        in
+        let acc = f context_n (f context_n acc entry.pbe_type) entry.pbe_value in
+        let hidden_type = EConstr.it_mkProd_or_LetIn entry.pbe_type entry.pbe_context in
+        let entry_n = g (LocalAssum
+          (Context.make_annot Anonymous entry.pbe_relevance, hidden_type)) entry_n
+        in
+        entry_n, acc)
+      (n, f n acc ty) entries
+    in
+    f n acc t
+  | PRun (ty,k,b,cont) -> f n (f n (f n (f n acc ty) k) b) cont
 
 (***************************)
 (* occurs check functions  *)

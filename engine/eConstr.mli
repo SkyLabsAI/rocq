@@ -98,6 +98,7 @@ type compacted_declaration = (constr, types, ERelevance.t) Context.Compacted.Dec
 type named_context = (constr, types, ERelevance.t) Context.Named.pt
 type compacted_context = compacted_declaration list
 type rel_context = (constr, types, ERelevance.t) Context.Rel.pt
+type pblock_entry = (constr, types, ERelevance.t) Constr.pblock_entry
 type 'a binder_annot = ('a,ERelevance.t) Context.pbinder_annot
 
 val annotR : 'a -> 'a binder_annot
@@ -184,6 +185,10 @@ val mkInt : Uint63.t -> t
 val mkFloat : Float64.t -> t
 val mkString : Pstring.t -> t
 val mkArray : EInstance.t * t array * t * t -> t
+val mkPBlock : EInstance.t * t * pblock_entry array * t -> t
+val mkPRun : t * t * t * t -> t
+
+val expand_pblock : pblock_entry array -> t -> t
 
 module UnsafeMonomorphic : sig
   val mkConst : Constant.t -> t
