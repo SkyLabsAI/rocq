@@ -285,7 +285,9 @@ let install_dirs prefs arch =
         try Some (Sys.getenv "COQ_CONFIGURE_PREFIX")
         with
         | Not_found when prefs.interactive -> None
-        | Not_found -> Some Sys.(getcwd () ^ "/../install/default")
+        | Not_found ->
+          try Some Sys.(getenv "DUNE_SOURCEROOT" ^ "/_build/install/default") with
+          | Not_found -> Some Sys.(getcwd () ^ "/../install/default")
       end
     | p -> p
   in
