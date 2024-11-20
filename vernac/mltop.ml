@@ -94,6 +94,9 @@ module PluginSpec : sig
      should strengthen this invariant. *)
   val digest : t -> Digest.t list
 
+  (** bool = true for implicit dependencies *)
+  val add_deps : t list -> (bool * t) list
+
   val pp : t -> string
 
   module Set : CSet.ExtS with type elt = t
@@ -102,6 +105,16 @@ module PluginSpec : sig
 end = struct
 
   type t = { lib : string }
+
+  let compare { lib = l1 } { lib = l2 } = String.compare l1 l2
+
+  module Self = struct
+      type nonrec t = t
+      let compare = compare
+    end
+
+  module Set = CSet.Make(Self)
+  module Map = CMap.Make(Self)
 
   module Errors = struct
 
@@ -136,7 +149,22 @@ end = struct
 
   let load = function
     | { lib } ->
-      Fl_dynload.load_packages [lib]
+      (* no point in using Fl_dynload since we [add_deps] to get digests *)
+      let plugins = Fl_internals.fl_find_plugins lib in
+      List.iter Dynlink.loadfile plugins
+
+  let add_deps plugins =
+    let explicit = Set.of_list plugins in
+    let preds = Findlib.recorded_predicates() in
+    let allplugins = Findlib.package_deep_ancestors preds (List.map to_package plugins) in
+    List.filter_map (fun lib ->
+        (* comes from findlib so guaranteed valid *)
+        let plugin = { lib } in
+        let explicit = Set.mem plugin explicit in
+        (* only add not-yet-loaded implicit deps *)
+        if not explicit && Findlib.is_recorded_package lib then None
+        else Some (not explicit, plugin))
+      allplugins
 
   let digest s =
     match s with
@@ -144,18 +172,8 @@ end = struct
       let plugins = Fl_internals.fl_find_plugins lib in
       List.map Digest.file plugins
 
-  let compare { lib = l1 } { lib = l2 } = String.compare l1 l2
-
   let pp = function
     | { lib } -> lib
-
-  module Self = struct
-      type nonrec t = t
-      let compare = compare
-    end
-
-  module Set = CSet.Make(Self)
-  module Map = CMap.Make(Self)
 
 end
 
@@ -317,28 +335,36 @@ let add_loaded_module md =
 
 let reset_loaded_modules () = loaded_modules := []
 
-let if_verbose_load verb f name =
-  if not verb then f name
-  else
-    let info = str "[Loading ML file " ++ str (PluginSpec.pp name) ++ str " ..." in
-    try
-      let path = f name in
-      Feedback.msg_info (info ++ str " done]");
-      path
-    with reraise ->
-      Feedback.msg_info (info ++ str " failed]");
-      raise reraise
+type load_request =
+  | Summary
+  | Regular of { implicit : bool }
+
+let if_verbose_load req f name =
+  match req with
+  | Regular {implicit} when not !Flags.quiet -> begin
+      let info =
+        str "[Loading ML file " ++ str (PluginSpec.pp name) ++
+        (if implicit then str " (implicit dependency)" else mt()) ++ str " ..." in
+      try
+        let path = f name in
+        Feedback.msg_info (info ++ str " done]");
+        path
+      with reraise ->
+        Feedback.msg_info (info ++ str " failed]");
+        raise reraise
+    end
+  | Summary | Regular _ -> f name
 
 (** Load a module for the first time (i.e. dynlink it) *)
 
-let trigger_ml_object ~verbose plugin =
+let trigger_ml_object req plugin =
   let () =
     if not @@ plugin_is_known plugin then begin
       if not has_dynlink then
         CErrors.user_err
           (str "Dynamic link not supported (module " ++ str (PluginSpec.pp plugin) ++ str ").")
       else
-        if_verbose_load (verbose && not !Flags.quiet) load_ml_object plugin
+        if_verbose_load req load_ml_object plugin
     end
   in
   add_loaded_module plugin
@@ -348,7 +374,7 @@ let unfreeze_ml_modules x =
   List.iter
     (fun name ->
        let name = PluginSpec.of_package name in
-       trigger_ml_object ~verbose:false name) x
+       trigger_ml_object Summary name) x
 
 let () =
   Summary.declare_ml_modules_summary
@@ -361,22 +387,26 @@ let () =
 (* Liboject entries of declared ML Modules *)
 type ml_module_object =
   { mlocal : Vernacexpr.locality_flag
-  ; mnames : PluginSpec.t list
+  ; mnames : (bool * PluginSpec.t) list
+  (* bool: if true then implicit dep
+     XXX should we init_ml_object even for implicit deps? *)
   ; mdigests : Digest.t list
   }
 
 let cache_ml_objects mnames =
-  let iter obj =
-    trigger_ml_object ~verbose:true obj;
-    init_ml_object obj;
-    perform_cache_obj obj
+  let iter (implicit,obj) =
+    trigger_ml_object (Regular {implicit}) obj;
+    if not implicit then begin
+      init_ml_object obj;
+      perform_cache_obj obj
+    end
   in
   List.iter iter mnames
 
 let load_ml_objects _ {mnames; _} =
-  let iter obj =
-    trigger_ml_object ~verbose:true obj;
-    init_ml_object obj
+  let iter (implicit,obj) =
+    trigger_ml_object (Regular {implicit}) obj;
+    if not implicit then init_ml_object obj
   in
   List.iter iter mnames
 
@@ -397,7 +427,8 @@ let declare_ml_modules local mnames =
   let mnames = List.map (PluginSpec.of_package ~usercode:true) mnames in
   if Lib.sections_are_opened()
   then CErrors.user_err Pp.(str "Cannot Declare ML Module while sections are opened.");
-  let mdigests = CList.concat_map PluginSpec.digest mnames in
+  let mnames = PluginSpec.add_deps mnames in
+  let mdigests = CList.concat_map (fun (_,plugin) -> PluginSpec.digest plugin) mnames in
   Lib.add_leaf (inMLModule {mlocal=local; mnames; mdigests});
   (* We can't put this in cache_function: it may declare other
      objects, and when the current module is required we want to run
