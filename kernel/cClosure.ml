@@ -817,13 +817,16 @@ let reloc_rargs depth stk =
   if Int.equal depth 0 then stk else reloc_rargs_rec depth stk
 
 let rec try_drop_parameters depth n = function
-    | Zapp args::s ->
+    | Zapp args::s as s' ->
         let q = Array.length args in
         if n > q then try_drop_parameters depth (n-q) s
         else if Int.equal n q then reloc_rargs depth s
         else
-          let aft = Array.sub args n (q-n) in
-          reloc_rargs depth (append_stack aft s)
+          let s' = if Int.equal n 0 then s' else
+              let aft = Array.sub args n (q-n) in
+              append_stack aft s
+          in
+          reloc_rargs depth s'
     | Zshift(k)::s -> try_drop_parameters (depth-k) n s
     | [] ->
         if Int.equal n 0 then []
