@@ -40,25 +40,6 @@
     (bash "echo '\"$(dirname \"$0\")\"/%{bin:coqidetop} -I \"$(dirname \"$0\")/%{workspace_root}/../install/default/lib\" -coqlib \"$(dirname \"$0\")/%{project_root}\" \"$@\"'")
     (run chmod +x %{targets})))))
 
-; coqc
-
-(alias
- (name coqc-prelude)
- (deps
-  %{bin:coqc}
-  %{bin:rocqworker}
-  %{project_root}/theories/Init/Prelude.vo))
-
-(rule
- (targets coqc)
- (deps (alias coqc-prelude))
- (action
-  (with-stdout-to %{targets}
-   (progn
-    (echo "#!/usr/bin/env bash\n")
-    (bash "echo '\"$(dirname \"$0\")\"/%{bin:coqc} -I \"$(dirname \"$0\")/%{workspace_root}/../install/default/lib\" -coqlib \"$(dirname \"$0\")\"/%{project_root} -nI \"$(dirname \"$0\")\"/%{project_root}/kernel/.kernel.objs/byte \"$@\"'")
-    (run chmod +x %{targets})))))
-
 ; coqtop.byte
 
 (alias
