@@ -3,6 +3,9 @@
  ; cf explanation for warning settings in configure.ml
  (dev     (flags :standard -w +a-4-9-27-40..42-44-45-48-58-67-68-70 -warn-error +a \ -short-paths)
           (rocq (flags :standard -w +default)))
+ (sl_timing
+          (flags :standard)
+          (ocamlopt_flags :standard -O3))
  (release (flags :standard)
           (ocamlopt_flags :standard -O3))
  (ireport (flags :standard -w -9-27+60-70)
