@@ -1,0 +1,11 @@
+DECLARE PLUGIN "rocq-params-attr.params"
+
+{
+open Stdarg
+}
+
+(* Test-only query command used by the test suite:
+   [ParamsCheck c n] succeeds iff [c] is recorded with Params arity [n]. *)
+VERNAC COMMAND EXTEND ParamsCheck CLASSIFIED AS QUERY
+| [ "ParamsCheck" reference(r) natural(n) ] -> { ParamsAttr.check_arity r n }
+END

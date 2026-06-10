@@ -1,0 +1,8 @@
+-Q theories ParamsAttr
+-I src
+
+src/paramsAttr.ml
+src/g_paramsAttr.mlg
+src/params_attr_plugin.mlpack
+theories/ParamsAttr.v
+theories/test.v

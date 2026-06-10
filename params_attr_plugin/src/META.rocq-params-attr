@@ -1,0 +1,11 @@
+package "params" (
+    directory = "."
+    version = "dev"
+    description = "A #[params=\"N\"] programmable attribute (Params arity)"
+    requires = ""
+    archive(byte) = "params_attr_plugin.cma"
+    archive(native) = "params_attr_plugin.cmxa"
+    plugin(byte) = "params_attr_plugin.cma"
+    plugin(native) = "params_attr_plugin.cmxs"
+)
+directory = "."
