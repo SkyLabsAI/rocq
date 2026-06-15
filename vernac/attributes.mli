@@ -12,6 +12,7 @@
 type vernac_flag_type =
   | FlagQualid of Libnames.qualid
   | FlagString of string
+  | FlagInt of int
 
 type vernac_flags = vernac_flag list
 and vernac_flag = (string * vernac_flag_value) CAst.t
@@ -139,6 +140,13 @@ val payload_parser : ?cat:(string -> string -> string) -> name:string -> string 
 
 val payload_attribute : ?cat:(string -> string -> string) -> name:string -> string option attribute
 (** This is just [attribute_of_list] for a single [payload_parser]. *)
+
+val int_parser : name:string -> int key_parser
+(** [int_parser ~name] parses attributes like [#[name=42]] (negative
+    integers are accepted, e.g. [#[name=-1]]). [name] may only be given once. *)
+
+val int_attribute : name:string -> int option attribute
+(** This is just [attribute_of_list] for a single [int_parser]. *)
 
 (** Define boolean attribute [name], of the form [name={yes,no}]. The
    attribute may only be set once for a command. *)

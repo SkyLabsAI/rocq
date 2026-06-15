@@ -12,6 +12,7 @@
 type vernac_flag_type =
   | FlagQualid of Libnames.qualid
   | FlagString of string
+  | FlagInt of int
 
 type vernac_flags = vernac_flag list
 and vernac_flag = (string * vernac_flag_value) CAst.t
@@ -23,6 +24,7 @@ and vernac_flag_value =
 let pr_vernac_flag_leaf = function
   | FlagString s -> Pp.(quote (str s))
   | FlagQualid p -> Libnames.pr_qualid p
+  | FlagInt i -> Pp.int i
 
 let rec pr_vernac_flag_value = let open Pp in function
   | VernacFlagEmpty -> mt ()
@@ -373,7 +375,17 @@ let qualid_parser ~name : Libnames.qualid key_parser = fun ?loc orig args ->
     end
   |  _ -> CErrors.user_err ?loc Pp.(str "Ill formed \"" ++ str name ++ str"\" attribute (qualid expected)")
 
+let int_parser ~name : int key_parser = fun ?loc orig args ->
+  match args with
+  | VernacFlagLeaf (FlagInt n) -> begin match orig with
+      | None -> n
+      | Some _ -> error_twice ?loc ~name
+    end
+  |  _ -> CErrors.user_err ?loc Pp.(str "Ill formed \"" ++ str name ++ str"\" attribute (integer expected)")
+
 let payload_attribute ?cat ~name = attribute_of_list [name, payload_parser ?cat ~name]
+
+let int_attribute ~name = attribute_of_list [name, int_parser ~name]
 
 let using = payload_attribute ?cat:None ~name:"using"
 

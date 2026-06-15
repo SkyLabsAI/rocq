@@ -127,6 +127,7 @@ GRAMMAR EXTEND Gram
   ;
   attr_value:
     [ [ "=" ; v = string -> { VernacFlagLeaf (FlagString v) }
+      | "=" ; v = integer -> { VernacFlagLeaf (FlagInt v) }
       | "=" ; v = qualid -> { VernacFlagLeaf (FlagQualid v) }
       | "(" ; a = attribute_list ; ")" -> { VernacFlagList a }
       | -> { VernacFlagEmpty } ]
