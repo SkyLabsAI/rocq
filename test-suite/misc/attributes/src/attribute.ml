@@ -24,8 +24,26 @@ let error_hook =
   in
   Vernacentries.DefAttributes.Observer.register ~name:"error" attr
 
+(* Exercises the integer attribute parser ([Attributes.int_attribute] /
+   [int_parser]): [#[size=N]] parses [N] as an [int] and prints it once the
+   definition completes. *)
+let size_hook =
+  let attr : Declare.Hook.t list Attributes.attribute =
+    let open Attributes in
+    let open Attributes.Notations in
+    int_attribute ~name:"size" >>= function
+    | None -> return []
+    | Some n ->
+      let hook = Declare.Hook.make @@ fun _data ->
+        Feedback.msg_info Pp.(str "size = " ++ int n ++ str "\n")
+      in
+      return [hook]
+  in
+  Vernacentries.DefAttributes.Observer.register ~name:"size" attr
+
 let () =
   Mltop.(declare_cache_obj_full @@ interp_only_obj @@ fun () ->
          Vernacentries.DefAttributes.Observer.activate print_hook;
-         Vernacentries.DefAttributes.Observer.activate error_hook)
+         Vernacentries.DefAttributes.Observer.activate error_hook;
+         Vernacentries.DefAttributes.Observer.activate size_hook)
     "rocq-test-suite.attribute"
