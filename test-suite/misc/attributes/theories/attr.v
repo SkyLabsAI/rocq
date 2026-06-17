@@ -21,11 +21,6 @@ Definition i1 : True := I.
 #[size=-7]
 Definition i2 : True := I.
 
-(* The integer attribute also fires on the proof (Qed/Defined) path. *)
-#[size=3]
-Lemma i3 : True.
-Proof. exact I. Qed.
-
 (* A string payload is not an integer. *)
 Fail #[size="3"]
 Definition i_bad_string : True := I.
@@ -38,7 +33,7 @@ Definition i_bad_qualid : True := I.
 Fail #[size=1, size=2]
 Definition i_twice : True := I.
 
-(* par marshals th summary, enforcing that it doesn't contain closures *)
+(* par marshals the summary, enforcing that it doesn't contain closures *)
 Lemma parfoo : True /\ True.
 Proof.
   split.

@@ -20,3 +20,8 @@ if ! [ -e theories/attr.vo ]; then
   >&2 echo Missing attr.vo after successful compilation
   exit 1
 fi
+
+# The [#[size=N]] attribute hook records each parsed integer to size.out (see
+# src/attribute.ml). Check the captured output matches the expected values,
+# which verifies the integer attribute parser produced the right values.
+diff -u --strip-trailing-cr size.out.reference size.out

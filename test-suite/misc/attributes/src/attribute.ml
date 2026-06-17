@@ -1,5 +1,12 @@
 open Names
 
+(* The [#[size=N]] hook records the parsed integer to a file so the test
+   harness can diff it against a checked-in reference (see misc/attributes.sh).
+   This mirrors the [tc_declaration_observer] test: writing to a file rather
+   than [Feedback.msg_info] keeps the compared output free of banners and
+   location-dependent noise. The file is (re)created when the plugin loads. *)
+let size_oc = open_out "size.out"
+
 let print_hook =
   let attr : Declare.Hook.t list Attributes.attribute =
     let hook = Declare.Hook.make @@ fun data ->
@@ -35,7 +42,8 @@ let size_hook =
     | None -> return []
     | Some n ->
       let hook = Declare.Hook.make @@ fun _data ->
-        Feedback.msg_info Pp.(str "size = " ++ int n ++ str "\n")
+        Printf.fprintf size_oc "size = %d\n" n;
+        flush size_oc
       in
       return [hook]
   in
