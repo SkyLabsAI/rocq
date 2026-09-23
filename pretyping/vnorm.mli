@@ -24,4 +24,4 @@ val no_readback_check : readback_check
 val check_vm : readback_check -> env -> Evd.evar_map -> constr -> types -> unit
 
 (** {6 Reduction functions } *)
-val cbv_vm : ?readback_check:readback_check -> env -> Evd.evar_map -> constr -> types -> constr
+val cbv_vm : ?lossy:bool -> ?readback_check:readback_check -> env -> Evd.evar_map -> constr -> types -> constr
