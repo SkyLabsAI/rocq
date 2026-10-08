@@ -1308,7 +1308,12 @@ let rec whd_state_gen ?csts flags env sigma =
       | [], (body_subs, PBlock (_, _, entries, body)) ->
         let body = EConstr.expand_pblock entries body in
         let body = mk_clos body_subs body in
-        whrec cst_l (cont, Stack.append_app [|body|] stack)
+        (* The synthetic continuation argument belongs to the unfolded
+           [PRun], not to the enclosing constant's parameters. Record it
+           just like an [App] node before beta reduction consumes it. *)
+        let args = [|body|] in
+        whrec (Cst_stack.add_args args cst_l)
+          (cont, Stack.append_app args stack)
       | _ -> fold ()
       end
 
