@@ -973,20 +973,6 @@ let strip_update_shift_absorb_app head stk =
   in
   strip_rec head stk
 
-let strip_update_shift_app_red_head head stk =
-  let rec strip_rec rstk h depth = function
-    | Zshift(k) as e :: s ->
-        strip_rec (e::rstk) (lift_fconstr k h) (depth+k) s
-    | Zapp args :: s ->
-        strip_rec (Zapp args :: rstk) (mkFApp h args) depth s
-    | Zupdate(m)::s ->
-        let () = update m h.mark h.term in
-        strip_rec rstk m depth s
-    | ((ZcaseT _ | Zproj _ | Zfix _ | Zprimitive _ | Zrun _) :: _ | []) as stk ->
-      (h, (depth,List.rev rstk, stk))
-  in
-  strip_rec [] head 0 stk
-
 let strip_update_shift_app_red head stk =
   let rec strip_rec rstk h depth = function
     | Zshift(k) as e :: s ->
@@ -1004,10 +990,6 @@ let strip_update_shift_app_red head stk =
 let strip_update_shift_app head stack =
   assert (not (RedState.is_red head.mark));
   strip_update_shift_app_red head stack
-
-let strip_update_shift_app_head head stack =
-  assert (not (RedState.is_red head.mark));
-  strip_update_shift_app_red_head head stack
 
 let get_nth_arg head n stk =
   assert (not (RedState.is_red head.mark));
@@ -2262,8 +2244,8 @@ let rec knr info tab ~pat_state m stk =
   | FLetIn (_,v,_,bd,e) when red_set mode info RedFlags.fZETA ->
       knit ~mode info tab ~pat_state (usubs_cons v e) bd stk
   | FInt _ | FFloat _ | FString _ | FArray _ ->
-    (match [@ocaml.warning "-4"] strip_update_shift_app_head m stk with
-     | (_, (_, _, Zprimitive(op,(_,u as c),rargs,nargs)::s)) ->
+    (match [@ocaml.warning "-4"] strip_update_shift_app m stk with
+     | (_, _, _, Zprimitive(op,(_,u as c),rargs,nargs)::s) ->
        let (rargs, nargs) = skip_native_args (m::rargs) nargs in
        begin match nargs with
        | [] ->
@@ -2283,7 +2265,10 @@ let rec knr info tab ~pat_state m stk =
            assert (kd = CPrimitives.Kwhnf);
            kni info tab ~pat_state a (Zprimitive(op,c,rargs,nargs)::s)
        end
-     | (head, (_, _, s)) -> knr_ret info tab ~pat_state (head, s))
+     (* Keep the original literal head, as in the upstream reducer. The
+        inspected cache may contain an application from an ill-typed
+        conversion candidate; it is not a WHNF head. *)
+     | (depth, _, _, s) -> knr_ret info tab ~pat_state (m, zshift depth s))
   | FBlock (_, _, entries, t, e) ->
     (match [@ocaml.warning "-4"] strip_update_shift_app m stk with
      | (_, _, rargs, Zrun (_, _, _k, _ek, mode) :: stk)
