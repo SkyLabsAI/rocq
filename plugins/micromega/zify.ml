@@ -20,7 +20,7 @@ let debug_zify = CDebug.create ~name:"zify" ()
 
 let { Goptions.get = restrict_traversal } =
   Goptions.declare_bool_option_and_ref
-    ~key:["Zify"; "Restrict"; "Traversal"] ~value:false ()
+    ~key:["Zify"; "Restrict"; "Traversal"] ~value:true ()
 
 (* The following [constr] are necessary for constructing the proof terms *)
 
