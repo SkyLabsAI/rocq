@@ -18,6 +18,10 @@ module ERelevance = EConstr.ERelevance
 
 let debug_zify = CDebug.create ~name:"zify" ()
 
+let { Goptions.get = restrict_traversal } =
+  Goptions.declare_bool_option_and_ref
+    ~key:["Zify"; "Restrict"; "Traversal"] ~value:false ()
+
 (* The following [constr] are necessary for constructing the proof terms *)
 
 let zify str =
@@ -395,6 +399,7 @@ let specs = Summary.ref ~name:"zify_specs" ConstrMap.empty
 let table_cache = ref ConstrMap.empty
 let saturate_cache = ref ConstrMap.empty
 let specs_cache = ref ConstrMap.empty
+let target_heads_cache = ref GlobRef.Set_env.empty
 
 (** Each type-class gives rise to a different table.
     They only differ on how projections are extracted.  *)
@@ -768,7 +773,31 @@ module BinOpSpec = MakeTable (EBinOpSpec)
 let init_cache () =
   table_cache := !table;
   saturate_cache := !saturate;
-  specs_cache := !specs
+  specs_cache := !specs;
+  (* The discovery passes run after injection, so recognize target operators
+     as well as the source heads used to index the registration tables. *)
+  target_heads_cache :=
+    if not (restrict_traversal ()) then GlobRef.Set_env.empty
+    else
+      let evd = Evd.from_env (Global.env ()) in
+      ConstrMap.fold
+        (fun _ (_, d) acc ->
+          let target =
+            match d with
+            | BinOp d -> Some d.deriv.EBinOpT.tbop
+            | UnOp d -> Some d.deriv.EUnOpT.tuop
+            | BinRel d -> Some d.deriv.EBinRelT.tbrel
+            | CstOp d -> Some d.deriv.ECstOpT.cst
+            | InjTyp d -> Some d.deriv.EInjT.inj
+            | _ -> None
+          in
+          match target with
+          | None -> acc
+          | Some t ->
+            let head, _ = EConstr.decompose_app evd t in
+            (try GlobRef.Set_env.add (fst (EConstr.destRef evd head)) acc
+             with DestKO -> acc))
+        !table_cache GlobRef.Set_env.empty
 
 open EInjT
 
@@ -1074,6 +1103,20 @@ let decompose_app env evd e =
   | Prod (a, p1, p2) when is_arrow env evd a p1 p2 -> (arrow, [|p1; p2|])
   | App (c, a) -> (c, a)
   | _ -> (EConstr.whd_evar evd e, [||])
+
+(* This intentionally tests heads only, not registration parameters or arity.
+   Unknown heads are boundaries for discovery, even when their arguments
+   contain registered operators. Logical structure remains traversable. *)
+let registered_head evd c =
+  let in_table table =
+    try ignore (ConstrMap.find_all evd c table); true
+    with Not_found | DestKO -> false
+  in
+  in_table !table_cache || in_table !specs_cache || in_table !saturate_cache
+  || (try GlobRef.Set_env.mem (fst (EConstr.destRef evd c)) !target_heads_cache
+      with DestKO -> false)
+  || List.exists (EConstr.eq_constr evd c)
+       [force op_and; force op_or; force op_iff; force op_not; arrow]
 
 type 'op propop = {op : 'op; op_constr : EConstr.t; op_iff : EConstr.t}
 
@@ -1498,7 +1541,8 @@ let rec spec_of_term env evd (senv : spec_env) t =
     try EConstr.mkVar (HConstr.find t senv.map) with Not_found -> t
   in
   let c, a = decompose_app env evd t in
-  if a = [||] then (* The term cannot be decomposed. *)
+  if a = [||]
+     || (restrict_traversal () && not (registered_head evd c)) then
     (get_name t senv, senv)
   else
     (* recursively analyse the sub-terms *)
@@ -1537,6 +1581,7 @@ let rec interp_pscripts l =
 
 let spec_of_hyps =
   Proofview.Goal.enter (fun gl ->
+      if restrict_traversal () then init_cache ();
       let env = Proofview.Goal.env gl in
       let concl = Proofview.Goal.concl gl in
       let evd = Proofview.Goal.sigma gl in
@@ -1618,7 +1663,8 @@ let saturate =
       let evd = Proofview.Goal.sigma gl in
       let rec sat t =
         match EConstr.kind evd t with
-        | App (c, args) ->
+        | App (c, args)
+          when not (restrict_traversal ()) || registered_head evd c ->
           sat c;
           Array.iter sat args;
           if Array.length args = 2 then
