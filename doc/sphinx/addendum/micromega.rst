@@ -393,12 +393,14 @@ obtain :math:`-1`. Thus, by Theorem :ref:`Psatz <psatz_thm>`, the goal is valid.
 
 .. flag:: Zify Restrict Traversal
 
-   This flag is unset by default. When set, specification discovery
+   This flag is set by default. When set, specification discovery
    (:tacn:`zify_iter_specs`) and saturation (:tacn:`zify_saturate`) only descend
-   into applications whose head is registered with :cmd:`Add Zify`, or is a
-   target operator of a registered translation. Built-in logical connectives
-   and implications remain traversable. Heads registered only for specifications
-   or saturation are also recognized.
+   into applications whose head is registered with :cmd:`Add Zify`, is a
+   target operator of a registered translation, or is a built-in input head
+   of micromega's arithmetic reifier. These built-ins include logical and
+   Boolean connectives, comparisons and arithmetic over ``Z``, ``Q`` and ``R``,
+   and numeric constructors. Implications remain traversable. Heads registered
+   only for specifications or saturation are also recognized.
 
    This first version checks only the head reference, not registration
    parameters or the number of arguments. Unknown heads are boundaries even

@@ -399,7 +399,7 @@ let specs = Summary.ref ~name:"zify_specs" ConstrMap.empty
 let table_cache = ref ConstrMap.empty
 let saturate_cache = ref ConstrMap.empty
 let specs_cache = ref ConstrMap.empty
-let target_heads_cache = ref GlobRef.Set_env.empty
+let traversal_heads_cache = ref GlobRef.Set_env.empty
 
 (** Each type-class gives rise to a different table.
     They only differ on how projections are extracted.  *)
@@ -776,10 +776,17 @@ let init_cache () =
   specs_cache := !specs;
   (* The discovery passes run after injection, so recognize target operators
      as well as the source heads used to index the registration tables. *)
-  target_heads_cache :=
+  traversal_heads_cache :=
     if not (restrict_traversal ()) then GlobRef.Set_env.empty
     else
+      (* Optional theories (notably Q and R) need not have been loaded. Refresh
+         this set each time, so later imports and backtracking are respected. *)
       let evd = Evd.from_env (Global.env ()) in
+      let heads =
+        Reify.fold
+          (fun head acc -> GlobRef.Set_env.add (fst (EConstr.destRef evd head)) acc)
+          GlobRef.Set_env.empty
+      in
       ConstrMap.fold
         (fun _ (_, d) acc ->
           let target =
@@ -797,7 +804,7 @@ let init_cache () =
             let head, _ = EConstr.decompose_app evd t in
             (try GlobRef.Set_env.add (fst (EConstr.destRef evd head)) acc
              with DestKO -> acc))
-        !table_cache GlobRef.Set_env.empty
+        !table_cache heads
 
 open EInjT
 
@@ -1106,15 +1113,17 @@ let decompose_app env evd e =
 
 (* This intentionally tests heads only, not registration parameters or arity.
    Unknown heads are boundaries for discovery, even when their arguments
-   contain registered operators. Logical structure remains traversable. *)
+   contain registered operators. Micromega's built-in input heads and logical
+   structure remain traversable even without explicit Zify registrations. *)
 let registered_head evd c =
   let in_table table =
     try ignore (ConstrMap.find_all evd c table); true
     with Not_found | DestKO -> false
   in
   in_table !table_cache || in_table !specs_cache || in_table !saturate_cache
-  || (try GlobRef.Set_env.mem (fst (EConstr.destRef evd c)) !target_heads_cache
+  || (try GlobRef.Set_env.mem (fst (EConstr.destRef evd c)) !traversal_heads_cache
       with DestKO -> false)
+  (* Zify also works without loading an arithmetic reifier. *)
   || List.exists (EConstr.eq_constr evd c)
        [force op_and; force op_or; force op_iff; force op_not; arrow]
 
