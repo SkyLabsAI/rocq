@@ -16,6 +16,28 @@ module NamedDecl = Context.Named.Declaration
 
 module ERelevance = EConstr.ERelevance
 
+module Reify = struct
+  (* Static ML declarations, not proof-state registrations: entries must survive
+     backtracking past the first load of the arithmetic plugin. *)
+  let heads = ref []
+
+  let register key =
+    let head = lazy (
+      EConstr.of_constr
+        (UnivGen.constr_of_monomorphic_global (Global.env ()) (Rocqlib.lib_ref key)))
+    in
+    heads := (key, head) :: !heads;
+    head
+
+  let fold f init =
+    List.fold_left
+      (fun acc (key, head) ->
+        (* Do not force missing optional references: lazy values memoize failures,
+           but a later import may make this reference available. *)
+        if Rocqlib.has_ref key then f (Lazy.force head) acc else acc)
+      init !heads
+end
+
 let debug_zify = CDebug.create ~name:"zify" ()
 
 let { Goptions.get = restrict_traversal } =

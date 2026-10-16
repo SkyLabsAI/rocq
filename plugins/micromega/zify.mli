@@ -8,6 +8,16 @@
 (*         *     (see LICENSE file for the text of the license)         *)
 (************************************************************************)
 
+module Reify : sig
+  (** Declare a hardcoded input head of an arithmetic reifier, returning its lazy
+      reference and making it traversable by zify's discovery passes. Dump-only
+      references must not be registered. *)
+  val register : string -> EConstr.t Lazy.t
+
+  (** Fold over registered references whose defining libraries are loaded. *)
+  val fold : (EConstr.t -> 'a -> 'a) -> 'a -> 'a
+end
+
 val zify_register_locality : Hints.hint_locality Attributes.attribute
 
 module type S = sig

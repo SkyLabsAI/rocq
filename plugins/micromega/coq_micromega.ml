@@ -168,7 +168,7 @@ let constr_of_ref str =
 (* Register input heads where they are declared, so zify's restricted discovery
    follows exactly the operators known to this reifier. References used only
    for dumping syntax or proofs below deliberately remain unregistered. *)
-module Reify = Zify_plugin.Reify
+module Reify = Zify_plugin.Zify.Reify
 
 let rocq_and = Reify.register "core.and.type"
 let rocq_or = Reify.register "core.or.type"
