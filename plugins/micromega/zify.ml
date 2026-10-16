@@ -16,7 +16,33 @@ module NamedDecl = Context.Named.Declaration
 
 module ERelevance = EConstr.ERelevance
 
+module Reify = struct
+  (* Static ML declarations, not proof-state registrations: entries must survive
+     backtracking past the first load of the arithmetic plugin. *)
+  let heads = ref []
+
+  let register key =
+    let head = lazy (
+      EConstr.of_constr
+        (UnivGen.constr_of_monomorphic_global (Global.env ()) (Rocqlib.lib_ref key)))
+    in
+    heads := (key, head) :: !heads;
+    head
+
+  let fold f init =
+    List.fold_left
+      (fun acc (key, head) ->
+        (* Do not force missing optional references: lazy values memoize failures,
+           but a later import may make this reference available. *)
+        if Rocqlib.has_ref key then f (Lazy.force head) acc else acc)
+      init !heads
+end
+
 let debug_zify = CDebug.create ~name:"zify" ()
+
+let { Goptions.get = restrict_traversal } =
+  Goptions.declare_bool_option_and_ref
+    ~key:["Zify"; "Restrict"; "Traversal"] ~value:true ()
 
 (* The following [constr] are necessary for constructing the proof terms *)
 
@@ -99,6 +125,7 @@ module ConstrMap = struct
     Map.update gr (function None -> Some [e] | Some l -> Some (e :: l)) m
 
   let empty = Map.empty
+  let mem = Map.mem
 
   let find evd h m =
     match Map.find (fst (EConstr.destRef evd h)) m with
@@ -395,6 +422,7 @@ let specs = Summary.ref ~name:"zify_specs" ConstrMap.empty
 let table_cache = ref ConstrMap.empty
 let saturate_cache = ref ConstrMap.empty
 let specs_cache = ref ConstrMap.empty
+let traversal_heads_cache = ref GlobRef.Set_env.empty
 
 (** Each type-class gives rise to a different table.
     They only differ on how projections are extracted.  *)
@@ -770,6 +798,21 @@ let init_cache () =
   saturate_cache := !saturate;
   specs_cache := !specs
 
+(* Only discovery passes need the supplemental reifier-head set. *)
+let init_discovery_cache () =
+  init_cache ();
+  (* Built-in reifier heads are traversable independently of Zify registrations.
+     Translation targets are not inspected or implicitly made traversable. *)
+  traversal_heads_cache :=
+    if not (restrict_traversal ()) then GlobRef.Set_env.empty
+    else
+      (* Optional theories (notably Q and R) need not have been loaded. Refresh
+         this set each time, so later imports and backtracking are respected. *)
+      let evd = Evd.from_env (Global.env ()) in
+      Reify.fold
+        (fun head acc -> GlobRef.Set_env.add (fst (EConstr.destRef evd head)) acc)
+        GlobRef.Set_env.empty
+
 open EInjT
 
 (** Get constr of lemma and projections in ZifyClasses. *)
@@ -1074,6 +1117,22 @@ let decompose_app env evd e =
   | Prod (a, p1, p2) when is_arrow env evd a p1 p2 -> (arrow, [|p1; p2|])
   | App (c, a) -> (c, a)
   | _ -> (EConstr.whd_evar evd e, [||])
+
+(* This intentionally tests heads only, not registration parameters or arity.
+   Unknown heads are boundaries for discovery, even when their arguments
+   contain registered operators. Micromega's built-in input heads and logical
+   structure remain traversable even without explicit Zify registrations. *)
+let registered_head evd c =
+  (try
+     let head, _ = EConstr.destRef evd c in
+     ConstrMap.mem head !table_cache
+     || ConstrMap.mem head !specs_cache
+     || ConstrMap.mem head !saturate_cache
+     || GlobRef.Set_env.mem head !traversal_heads_cache
+   with DestKO -> false)
+  (* Zify also works without loading an arithmetic reifier. *)
+  || List.exists (EConstr.eq_constr evd c)
+       [force op_and; force op_or; force op_iff; force op_not; arrow]
 
 type 'op propop = {op : 'op; op_constr : EConstr.t; op_iff : EConstr.t}
 
@@ -1498,7 +1557,8 @@ let rec spec_of_term env evd (senv : spec_env) t =
     try EConstr.mkVar (HConstr.find t senv.map) with Not_found -> t
   in
   let c, a = decompose_app env evd t in
-  if a = [||] then (* The term cannot be decomposed. *)
+  if a = [||]
+     || (restrict_traversal () && not (registered_head evd c)) then
     (get_name t senv, senv)
   else
     (* recursively analyse the sub-terms *)
@@ -1537,6 +1597,7 @@ let rec interp_pscripts l =
 
 let spec_of_hyps =
   Proofview.Goal.enter (fun gl ->
+      if restrict_traversal () then init_discovery_cache ();
       let env = Proofview.Goal.env gl in
       let concl = Proofview.Goal.concl gl in
       let evd = Proofview.Goal.sigma gl in
@@ -1610,7 +1671,7 @@ let get_all_sat env evd c =
 
 let saturate =
   Proofview.Goal.enter (fun gl ->
-      init_cache ();
+      init_discovery_cache ();
       let table = CstrTable.HConstr.create 20 in
       let concl = Proofview.Goal.concl gl in
       let env = Proofview.Goal.env gl in
@@ -1618,7 +1679,8 @@ let saturate =
       let evd = Proofview.Goal.sigma gl in
       let rec sat t =
         match EConstr.kind evd t with
-        | App (c, args) ->
+        | App (c, args)
+          when not (restrict_traversal ()) || registered_head evd c ->
           sat c;
           Array.iter sat args;
           if Array.length args = 2 then

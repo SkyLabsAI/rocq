@@ -391,6 +391,30 @@ obtain :math:`-1`. Thus, by Theorem :ref:`Psatz <psatz_thm>`, the goal is valid.
    The :tacn:`zify` tactic can be extended with new types and operators by declaring and registering new typeclass instances using the following commands.
    The typeclass declarations can be found in the module ``ZifyClasses`` and the default instances can be found in the module ``ZifyInst``.
 
+.. flag:: Zify Restrict Traversal
+
+   This flag is set by default. When set, specification discovery
+   (:tacn:`zify_iter_specs`) and saturation (:tacn:`zify_saturate`) only descend
+   into applications whose head is registered with :cmd:`Add Zify` or is a
+   built-in input head of micromega's arithmetic reifier. These built-ins include
+   logical and Boolean connectives, comparisons and arithmetic over ``Z``, ``Q``
+   and ``R``, and numeric constructors. Implications remain traversable. Heads
+   registered only for specifications or saturation are also recognized.
+   Translation targets are not inspected and do not become traversable merely
+   because their source operator is registered.
+
+   This first version checks only the head reference, not registration
+   parameters or the number of arguments. Unknown heads are boundaries even
+   when their arguments contain registered operators. For example, saturation
+   does not inspect list elements hidden inside an unregistered list-length
+   function or predicate. The flag does not change the arithmetic translation
+   performed by :tacn:`zify_op`, or user-defined pre- and post-hooks.
+
+   Restricting discovery can avoid irrelevant auxiliary hypotheses, but it
+   can also omit facts on which an existing proof relies. It does not affect
+   soundness. Use ``Set Zify Restrict Traversal.`` to enable it, or
+   ``Unset Zify Restrict Traversal.`` to restore unrestricted discovery.
+
 .. cmd:: Add Zify @add_zify @qualid
 
    .. insertprodn add_zify add_zify
