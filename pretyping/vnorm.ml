@@ -183,7 +183,7 @@ let prepare_constructor env mind mib mip i u params =
     instance
   | instance :: rest ->
     if UVars.Instance.equal instance.instance_u u &&
-       Array.equal (==) instance.instance_params params then instance
+       Array.equal (Constr.equal) instance.instance_params params then instance
     else find_instance rest
   in
   (find_instance !(template.instances)).prepared
