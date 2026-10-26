@@ -408,19 +408,57 @@ let rec is_ground_term env evd term =
   | Const _ | Construct _ -> is_declared_term env evd term
   | _ -> false
 
-let parse_z sigma term =
-  let i, c = get_left_construct sigma term in
-  match i with
-  | 1 -> Mc.Z0
-  | 2 -> Mc.Zpos (parse_positive sigma c.(0))
-  | 3 -> Mc.Zneg (parse_positive sigma c.(0))
-  | i -> raise ParseError
+let rec parse_z sigma term =
+  match EConstr.kind sigma term with
+  (* Also accept the compact constants emitted by [dump_z], including when
+     reading an explicitly reified formula through the witness tactics. *)
+  | App (op, [|base; exponent|]) when EConstr.eq_constr sigma op (Lazy.force rocq_Zpower) ->
+    let exponent = parse_z sigma exponent in
+    begin match exponent with
+    | Mc.Z0 -> Mc.Zpos Mc.XH
+    | Mc.Zneg _ -> Mc.Z0
+    | Mc.Zpos _ -> Mc.Z.pow (parse_z sigma base) exponent
+    end
+  | App (op, [|arg|]) when EConstr.eq_constr sigma op (Lazy.force rocq_Zopp) ->
+    Mc.Z.opp (parse_z sigma arg)
+  | _ ->
+    let i, c = get_left_construct sigma term in
+    match i with
+    | 1 -> Mc.Z0
+    | 2 -> Mc.Zpos (parse_positive sigma c.(0))
+    | 3 -> Mc.Zneg (parse_positive sigma c.(0))
+    | _ -> raise ParseError
+
+let dump_power_of_two p =
+  let rec exponent n = function
+    | Mc.XH -> Some n
+    | Mc.XO p -> exponent (n + 1) p
+    | Mc.XI _ -> None
+  in
+  match exponent 0 p with
+  | Some n when n >= 128 ->
+    let two = EConstr.mkApp (Lazy.force rocq_POS, [|dump_positive (Mc.XO Mc.XH)|]) in
+    let n = EConstr.mkApp (Lazy.force rocq_POS, [|dump_positive (CamlToCoq.positive n)|]) in
+    Some (EConstr.mkApp (Lazy.force rocq_Zpower, [|two; n|]))
+  | _ -> None
 
 let dump_z x =
+  (* A compact coefficient [PEc (Z.pow 2 n)] uses ordinary integer power in
+     the checker, not the slow polynomial operation [PEpow (PEc 2) n]. It
+     also avoids compiling and converting a long constructor numeral. Keep
+     small constants literal to avoid overhead on ordinary arithmetic goals. *)
   match x with
   | Mc.Z0 -> Lazy.force rocq_ZERO
-  | Mc.Zpos p -> EConstr.mkApp (Lazy.force rocq_POS, [|dump_positive p|])
-  | Mc.Zneg p -> EConstr.mkApp (Lazy.force rocq_NEG, [|dump_positive p|])
+  | Mc.Zpos p ->
+    begin match dump_power_of_two p with
+    | Some power -> power
+    | None -> EConstr.mkApp (Lazy.force rocq_POS, [|dump_positive p|])
+    end
+  | Mc.Zneg p ->
+    begin match dump_power_of_two p with
+    | Some power -> EConstr.mkApp (Lazy.force rocq_Zopp, [|power|])
+    | None -> EConstr.mkApp (Lazy.force rocq_NEG, [|dump_positive p|])
+    end
 
 
 let dump_q q =
@@ -843,7 +881,14 @@ let rec parse_zexpr gl =
       let z = parse_zconstant gl x in
       match z with
       | Mc.Zneg _ -> Mc.PEc Mc.Z0
-      | _ -> Mc.PEpow (expr, Mc.Z.to_N z))
+      | _ ->
+        (* Fold constant powers before polynomial normalization. In particular,
+           multiplying a growing accumulator by 2 is quadratic with the
+           extracted binary arithmetic, whereas [Z.pow] multiplies by the
+           small base on the left. The checker then receives a coefficient. *)
+        match Mc.zeval_const expr with
+        | Some base -> Mc.PEc (Mc.Z.pow base z)
+        | None -> Mc.PEpow (expr, Mc.Z.to_N z))
     zop_spec
 
 and parse_zconstant gl e =
@@ -2464,12 +2509,12 @@ let xlra_R = micromega_genr linear_prover_R
 let xlia =
   micromega_gen parse_zarith
     (fun _ x -> x)
-    Mc.cnfZ zz_domain_spec dump_zexpr linear_Z
+    Lia_arith.cnf zz_domain_spec dump_zexpr linear_Z
 
 let wlia =
   micromega_wit_gen
     (fun _ x -> x)
-    Mc.cnfZ zz_domain_spec linear_Z
+    Lia_arith.cnf zz_domain_spec linear_Z
 
 let xnra_Q =
   micromega_gen parse_qarith
@@ -2486,12 +2531,12 @@ let xnra_R = micromega_genr nlinear_prover_R
 let xnia =
   micromega_gen parse_zarith
     (fun _ x -> x)
-    Mc.cnfZ zz_domain_spec dump_zexpr nlinear_Z
+    Lia_arith.cnf zz_domain_spec dump_zexpr nlinear_Z
 
 let wnia =
   micromega_wit_gen
     (fun _ x -> x)
-    Mc.cnfZ zz_domain_spec nlinear_Z
+    Lia_arith.cnf zz_domain_spec nlinear_Z
 
 let xsos_Q =
   micromega_gen parse_qarith
@@ -2510,13 +2555,13 @@ let xsos_R = micromega_genr (non_linear_prover_R "pure_sos" None)
 let xsos_Z =
   micromega_gen parse_zarith
     (fun _ x -> x)
-    Mc.cnfZ zz_domain_spec dump_zexpr
+    Lia_arith.cnf zz_domain_spec dump_zexpr
     (non_linear_prover_Z "pure_sos" None)
 
 let wsos_Z =
   micromega_wit_gen
     (fun _ x -> x)
-    Mc.cnfZ zz_domain_spec
+    Lia_arith.cnf zz_domain_spec
     (non_linear_prover_Z "pure_sos" None)
 
 let xpsatz_Q i =
@@ -2537,13 +2582,13 @@ let xpsatz_R i =
 let xpsatz_Z i =
   micromega_gen parse_zarith
     (fun _ x -> x)
-    Mc.cnfZ zz_domain_spec dump_zexpr
+    Lia_arith.cnf zz_domain_spec dump_zexpr
     (non_linear_prover_Z "real_nonlinear_prover" (Some i))
 
 let wpsatz_Z i =
   micromega_wit_gen
     (fun _ x -> x)
-    Mc.cnfZ zz_domain_spec
+    Lia_arith.cnf zz_domain_spec
     (non_linear_prover_Z "real_nonlinear_prover" (Some i))
 
 let print_lia_profile () =
