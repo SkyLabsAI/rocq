@@ -163,6 +163,6 @@ bin
 *.install
 
 .dune-stamp
-/theories/Corelib/dune
-/theories/Ltac2/dune
+#/theories/Corelib/dune
+#/theories/Ltac2/dune
 /test-suite/test_suite_config.inc
