@@ -1,7 +1,8 @@
 ; For now we use coq_dune to generate the rules here
 (rocq.theory
  (name Corelib)
- (package rocq-core)
+ (public_name rocq-core)
+ (legacy_install)
  (synopsis "Rocq's Core Library")
  ; Uncomment this to have dune compile native files in release mode
  ; (mode native)
