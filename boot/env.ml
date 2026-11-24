@@ -85,30 +85,32 @@ let dune_workspace_root : string -> string option = fun path ->
       in
       if ok then Some root else None
 
-(** The following only makes sense when executables are running from
-    source tree (e.g. during build or in local mode). *)
+(** Locate the installation root relative to the executable, or use the
+    workspace installation root when running from Dune's build tree. *)
 let rocqroot =
-  match dune_workspace_root rocqbin with
-  | Some dir ->
-      let dir = Filename.concat dir "_build" in
-      let dir = Filename.concat dir "install" in
-      Filename.concat dir "default"
-  | None ->
-  let rec search = function
-    | [] ->
-      (* couldn't recognize the layout, guess the executable is 1 dir below the root
-         (eg "mybin/rocq")
-         XXX we should search only when we need the root
-         and produce an error if we can't find it *)
-      Filename.dirname rocqbin
+  let rec installed_root = function
+    | [] -> None
     | path :: rest ->
-      if Sys.file_exists (Filename.concat path "bin") then path
-      else search rest
+      if Sys.file_exists (Filename.concat path "bin") then Some path
+      else installed_root rest
   in
-  (* we can be "bin/rocq" or "lib/rocq-runtime/rocqworker"
-     so rocqbin can be "bin/" or "lib/rocq-runtime/" *)
+  (* We can be [bin/rocq] or [lib/rocq-runtime/rocqworker], so [rocqbin]
+     can be [bin/] or [lib/rocq-runtime/]. Prefer this relocatable layout
+     over the Dune workspace fallback. In particular, Dune package scopes
+     have their own [bin/] and [lib/] directories below [_build/_private]. *)
   let dirname = Filename.dirname in
-  search [ dirname rocqbin; dirname @@ dirname rocqbin ]
+  match installed_root [ dirname rocqbin; dirname @@ dirname rocqbin ] with
+  | Some root -> root
+  | None ->
+    (match dune_workspace_root rocqbin with
+     | Some dir ->
+       let dir = Filename.concat dir "_build" in
+       let dir = Filename.concat dir "install" in
+       Filename.concat dir "default"
+     | None ->
+       (* Couldn't recognize the layout, guess the executable is one
+          directory below the root (for example [mybin/rocq]). *)
+       Filename.dirname rocqbin)
 
 let relocate = function
   | Coq_config.NotRelocatable p -> p
