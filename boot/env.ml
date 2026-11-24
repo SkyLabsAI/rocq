@@ -18,10 +18,21 @@ module Path = struct
 
 end
 
-(* For now just a pointer to coq/lib (for .vo) and rocq-runtime/lib (for plugins)  *)
+type standard_library =
+  { physical_path : Path.t
+  ; logical_path : string
+  }
+
+type library_layout =
+  { coqlib : Path.t
+  ; corelib : Path.t
+  ; user_contrib : Path.t
+  ; standard_libraries : standard_library list
+  }
+
 type t =
-  { runtimelib: Path.t
-  ; coqlib : Path.t
+  { runtimelib : Path.t
+  ; library_layout : library_layout
   }
 
 (* This code needs to be refactored, for now it is just what used to be in envvars  *)
@@ -43,8 +54,9 @@ let canonical_path_name p =
     Filename.concat current p
 
 let theories_dir = "theories"
+let package_data_dir = "rocq.d"
 let plugins_dir = "plugins"
-let prelude = Filename.concat theories_dir "Init/Prelude.vo"
+let prelude = "Init/Prelude.vo"
 
 let find_in_PATH f =
   match Sys.getenv_opt "PATH" with
@@ -116,23 +128,71 @@ let relocate = function
   | Coq_config.NotRelocatable p -> p
   | Coq_config.Relocatable p -> Filename.concat rocqroot p
 
-(** [check_file_else ~dir ~file oth] checks if [file] exists in
-    the installation directory [dir] given relatively to [coqroot],
-    which maybe has been relocated.
-    If the check fails, then [oth ()] is evaluated.
-    Using file system equality seems well enough for this heuristic *)
-let check_file_else ~dir ~file oth =
-  let path = use_suffix rocqroot dir in
-  if Sys.file_exists (Filename.concat path file) then path else oth ()
+let core_standard_library physical_path =
+  { physical_path; logical_path = "Corelib" }
 
-let guess_coqlib () =
+let legacy_layout coqlib =
+  let corelib = Path.relative coqlib theories_dir in
+  { coqlib
+  ; corelib
+  ; user_contrib = Path.relative coqlib "user-contrib"
+  ; standard_libraries = [core_standard_library corelib]
+  }
+
+let findlib_layout coqlib =
+  let corelib = Path.relative coqlib package_data_dir in
+  (* Ltac2 is part of the standard distribution and remains available
+     without an explicit [-package rocq-core.ltac2]. *)
+  let ltac2 =
+    Path.(relative (relative coqlib "ltac2") package_data_dir)
+  in
+  let standard_libraries =
+    let corelib = core_standard_library corelib in
+    if Path.exists ltac2 then
+      [corelib; { physical_path = ltac2; logical_path = "Ltac2" }]
+    else
+      [corelib]
+  in
+  let libdir = Filename.dirname coqlib in
+  (* Keep loading legacy user-contrib packages when they coexist with the
+     findlib-style Corelib. *)
+  { coqlib
+  ; corelib
+  ; user_contrib = Path.(relative (relative libdir "coq") "user-contrib")
+  ; standard_libraries
+  }
+
+let valid_layout { corelib; _ } =
+  Path.exists (Path.relative corelib prelude)
+
+let existing_layout coqlib =
+  let findlib = findlib_layout coqlib in
+  if valid_layout findlib then
+    Some findlib
+  else
+    let legacy = legacy_layout coqlib in
+    if valid_layout legacy then Some legacy else None
+
+let layout_for_coqlib coqlib =
+  match existing_layout coqlib with
+  | Some layout -> layout
+  | None -> legacy_layout coqlib
+
+let findlib_coqlib_suffix =
+  Filename.concat (Filename.dirname Coq_config.coqlibsuffix) "rocq-core"
+
+let guess_layout () =
   match Util.getenv_rocq "LIB" with
-  | Some v -> v
+  | Some coqlib -> layout_for_coqlib coqlib
   | None ->
-    check_file_else
-      ~dir:Coq_config.coqlibsuffix
-      ~file:prelude
-      (fun () -> relocate Coq_config.coqlib)
+    let findlib_coqlib = use_suffix rocqroot findlib_coqlib_suffix in
+    match existing_layout findlib_coqlib with
+    | Some layout -> layout
+    | None ->
+      let legacy_coqlib = use_suffix rocqroot Coq_config.coqlibsuffix in
+      match existing_layout legacy_coqlib with
+      | Some layout -> layout
+      | None -> layout_for_coqlib (relocate Coq_config.coqlib)
 
 (* Build layout uses coqlib = coqcorelib
    XXX we should be using -boot in build layout so is that dead code? *)
@@ -160,9 +220,10 @@ let fail_core plugin =
   eprintf "Please check the ROCQRUNTIMELIB env variable.\n";
   exit 1
 
-let validate_env ({ runtimelib; coqlib } as env) =
-  let coqlib = Filename.concat coqlib prelude in
-  if not (Sys.file_exists coqlib) then fail_lib coqlib;
+let validate_env
+    ({ runtimelib; library_layout = { corelib; _ } } as env) =
+  let prelude = Filename.concat corelib prelude in
+  if not (Sys.file_exists prelude) then fail_lib prelude;
   let plugin = Filename.concat runtimelib plugins_dir in
   if not (Sys.file_exists plugin) then fail_core plugin;
   env
@@ -176,11 +237,17 @@ let env_ref = ref None
 (* Should we fail on double initialization? That seems a way to avoid
    mis-use for example when we pass command line arguments *)
 let init_with ~coqlib =
-  let coqlib = match coqlib with
-    | None -> guess_coqlib ()
-    | Some coqlib -> coqlib
+  let library_layout =
+    match coqlib with
+    | None -> guess_layout ()
+    | Some coqlib -> layout_for_coqlib coqlib
   in
-  let env = validate_env { coqlib; runtimelib = guess_coqcorelib coqlib } in
+  let env =
+    { runtimelib = guess_coqcorelib library_layout.coqlib
+    ; library_layout
+    }
+    |> validate_env
+  in
   env_ref := Some (Env env);
   env
 
@@ -197,11 +264,13 @@ let maybe_init ~warn_ignored_coqlib ~boot ~coqlib =
     warn_ignored_coqlib ();
     Boot
 
-let coqlib { coqlib; _ } = coqlib
+let coqlib { library_layout = { coqlib; _ }; _ } = coqlib
 let runtimelib { runtimelib; _ } = runtimelib
 let plugins { runtimelib; _ } = Path.relative runtimelib plugins_dir
-let corelib { coqlib; _ } = Path.relative coqlib theories_dir
-let user_contrib { coqlib; _ } = Path.relative coqlib "user-contrib"
+let corelib { library_layout = { corelib; _ }; _ } = corelib
+let user_contrib { library_layout = { user_contrib; _ }; _ } = user_contrib
+let standard_libraries { library_layout = { standard_libraries; _ }; _ } =
+  standard_libraries
 let tool { runtimelib; _ } tool = Path.(relative (relative runtimelib "tools") tool)
 let revision { runtimelib; _ } = Path.relative runtimelib "revision"
 

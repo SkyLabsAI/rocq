@@ -12,9 +12,15 @@ open Util
 open Pp
 
 (* Recursively puts `.v` files in the LoadPath *)
-let build_corelib_vo_path ~unix_path ~rocq_path =
+let build_standard_library_vo_path
+    { Boot.Env.physical_path; logical_path } =
   let open Loadpath in
-  { unix_path; coq_path = rocq_path; implicit = true; recursive = true; installed = true }
+  { unix_path = Boot.Env.Path.to_string physical_path
+  ; coq_path = Libnames.dirpath_of_string logical_path
+  ; implicit = true
+  ; recursive = true
+  ; installed = true
+  }
 
 let build_userlib_path ~unix_path =
   let open Loadpath in
@@ -36,7 +42,6 @@ let init_load_path ~coqenv =
   let user_contrib = Boot.Env.user_contrib coqenv |> Boot.Path.to_string in
   let xdg_dirs = Envars.xdg_dirs ~warn:(fun x -> Feedback.msg_warning (str x)) in
   let rocqpath = Envars.coqpath in
-  let rocq_path = Names.DirPath.make [Libnames.rocq_init_root] in
   (* ML includes *)
   let core_dir = Boot.Env.runtimelib coqenv in
 
@@ -45,7 +50,10 @@ let init_load_path ~coqenv =
     then [Boot.Env.Path.(to_string (relative core_dir ".."))]
     else []
   in
-  let corelib = Boot.Env.corelib coqenv |> Boot.Path.to_string in
+  let standard_libraries =
+    Boot.Env.standard_libraries coqenv
+    |> List.map build_standard_library_vo_path
+  in
   let contrib_vo = build_userlib_path ~unix_path:user_contrib in
 
   let misc_vo =
@@ -61,8 +69,8 @@ let init_load_path ~coqenv =
       ; installed = false (* not considered "installed" *)
       } ] @
 
-    (* then standard library *)
-    [build_corelib_vo_path ~unix_path:corelib ~rocq_path] @
+    (* then standard libraries *)
+    standard_libraries @
 
     (* then user-contrib *)
     contrib_vo @

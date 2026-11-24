@@ -226,8 +226,6 @@ let convert_string d =
       (str "Directory " ++ str d ++ str " cannot be used as a Rocq identifier (skipped)");
     raise_notrace Exit
 
-let rocq_root = Id.of_string "Corelib"
-
 let add_rec_path ~unix_path ~rocq_root =
   let open System in
   if exists_dir unix_path then
@@ -246,14 +244,18 @@ let add_rec_path ~unix_path ~rocq_root =
     Feedback.msg_warning (str "Cannot open " ++ str unix_path)
 
 let init_load_path_std env ~default_ml () =
-  let corelib = Boot.Env.corelib env |> Boot.Path.to_string in
+  let standard_libraries = Boot.Env.standard_libraries env in
   let user_contrib = Boot.Env.user_contrib env |> Boot.Path.to_string in
   let xdg_dirs = Envars.xdg_dirs in
   let rocqpath = Envars.coqpath in
   let () = if default_ml then Nativelib.(include_dirs := default_include_dirs env) in
   (* NOTE: These directories are searched from last to first *)
-  (* first standard library *)
-  add_rec_path ~unix_path:corelib ~rocq_root:(Names.DirPath.make[rocq_root]);
+  (* first standard libraries *)
+  List.iter (fun { Boot.Env.physical_path; logical_path } ->
+      add_rec_path
+        ~unix_path:(Boot.Env.Path.to_string physical_path)
+        ~rocq_root:(Loadpath.dirpath_of_string logical_path))
+    standard_libraries;
   (* then user-contrib *)
   if Sys.file_exists user_contrib then
     add_rec_path ~unix_path:user_contrib ~rocq_root:Loadpath.default_root_prefix;

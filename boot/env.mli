@@ -28,16 +28,16 @@ to it. We don't forbid yet double initialization, (second time is a noop)
 but we may do so in the future. Rules for "coqlib" are:
 
 - the [ROCQLIB] env variable will be used if set
-- if not, the existence of [theories/Init/Prelude.vo] will be checked,
-  in the following order:
-  + [coqlibsuffix] given in configure
-  + [coqlib] given in configure
+- both findlib-style roots containing [rocq.d/Init/Prelude.vo] and legacy
+  roots containing [theories/Init/Prelude.vo] are accepted
+- if [ROCQLIB] is not set, the findlib-style [rocq-core] package is preferred,
+  followed by the configured legacy locations
 - if none of the above succeeds, the initialization will fail
 
-- The [ROCQRUNTIMELIB] env variable is also used if set, if not, the location
-  of the rocq-runtime files will be assumed to be [ROCQLIB/../rocq-runtime], except
-  if [ROCQLIB/plugins] exists [as in some developers layouts], in which case
-  we will set [ROCQRUNTIMELIB:=ROCQLIB].
+- The [ROCQRUNTIMELIB] env variable is also used if set. Otherwise, the
+  [rocq-runtime] package is assumed to be next to the selected library root,
+  except if [ROCQLIB/plugins] exists as in some developer layouts, in which
+  case [ROCQRUNTIMELIB:=ROCQLIB].
 
 Note that [set_coqlib] is used by some commands to process the [-coqlib] option,
 as of now this sets both [coqlib] and [coqcorelib]; this part of the initialization
@@ -71,6 +71,12 @@ module Path : sig
   val to_string : t -> string
 
 end
+
+(** A physical standard-library root and its Rocq logical path. *)
+type standard_library =
+  { physical_path : Path.t
+  ; logical_path : string
+  }
 
 (** Rocq runtime enviroment, including location of Rocq's Corelib *)
 type t
@@ -115,6 +121,9 @@ val plugins : t -> Path.t
 (** [user contrib directory] *)
 val user_contrib : t -> Path.t
 
+(** Standard-library roots that are available without [-package]. *)
+val standard_libraries : t -> standard_library list
+
 (** [tool-specific directory] *)
 val tool : t -> string -> Path.t
 
@@ -127,7 +136,8 @@ val revision : t -> Path.t
 (** rocq-runtime/lib directory, not sure if to keep this *)
 val runtimelib : t -> Path.t
 
-(** coq/lib directory, not sure if to keep this *)
+(** Selected Rocq library root. This is [lib/rocq-core] for a findlib-style
+    installation and [lib/coq] for a legacy installation. *)
 val coqlib : t -> Path.t
 
 (** [camlfind ()] is the path to the ocamlfind binary. *)

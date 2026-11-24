@@ -117,13 +117,17 @@ let init_load_path rocqenv =
   (* the to_string casting won't be necessary once Boot handles
      include paths *)
   let plugins = Boot.Env.plugins rocqenv |> Boot.Path.to_string in
-  let theories = Boot.Env.corelib rocqenv |> Boot.Path.to_string in
+  let standard_libraries = Boot.Env.standard_libraries rocqenv in
   let user_contrib = Boot.Env.user_contrib rocqenv |> Boot.Path.to_string in
   let xdg_dirs = Envars.xdg_dirs in
   let rocqpath = Envars.coqpath in
   (* NOTE: These directories are searched from last to first *)
-  (* first standard library *)
-  add_rec_path ~unix_path:theories ~rocq_root:(Names.DirPath.make[rocq_root]);
+  (* first standard libraries *)
+  List.iter (fun { Boot.Env.physical_path; logical_path } ->
+      add_rec_path
+        ~unix_path:(Boot.Env.Path.to_string physical_path)
+        ~rocq_root:(dirpath_of_string logical_path))
+    standard_libraries;
   (* then plugins *)
   add_rec_path ~unix_path:plugins ~rocq_root:(Names.DirPath.make [rocq_root]);
   (* then user-contrib *)
