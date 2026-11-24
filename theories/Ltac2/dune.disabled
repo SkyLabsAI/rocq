@@ -1,7 +1,6 @@
 (rocq.theory
  (name Ltac2)
  (public_name rocq-core.ltac2)
- (legacy_install)
  (synopsis "Ltac2 tactic language")
  (flags -w -deprecated-native-compiler-option)
  (no_corelib)

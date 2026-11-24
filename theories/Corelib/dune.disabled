@@ -2,7 +2,6 @@
 (rocq.theory
  (name Corelib)
  (public_name rocq-core)
- (legacy_install)
  (synopsis "Rocq's Core Library")
  ; Uncomment this to have dune compile native files in release mode
  ; (mode native)
