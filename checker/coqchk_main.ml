@@ -107,32 +107,33 @@ let set_include d p =
 let packages = ref []
 let add_package p = packages := p :: !packages
 
-let resolve_packages () =
-  let ps = Rocq_package.resolve !packages in
+let resolve_packages ~boot =
+  let ps = Rocq_package.resolve_for_rocq ~boot !packages in
   packages := [];
   List.iter (fun p -> set_include p.Rocq_package.dir p.Rocq_package.logpath) ps
+
+let init_findlib = function
+  | Boot.Env.Boot -> Findlib.init ()
+  | Env env ->
+    let runtimelib = Boot.Env.runtimelib env in
+    let libdir = Boot.Env.Path.(relative runtimelib ".." |> to_string) in
+    let env_ocamlpath =
+      match Sys.getenv_opt "OCAMLPATH" with
+      | None -> libdir
+      | Some path -> libdir ^ (if Sys.unix then ":" else ";") ^ path
+    in
+    Findlib.init ~env_ocamlpath ()
 
 (* Initializes the LoadPath *)
 let init_load_path rocqenv =
   (* the to_string casting won't be necessary once Boot handles
      include paths *)
   let plugins = Boot.Env.plugins rocqenv |> Boot.Path.to_string in
-  let standard_libraries = Boot.Env.standard_libraries rocqenv in
-  let user_contrib = Boot.Env.user_contrib rocqenv |> Boot.Path.to_string in
   let xdg_dirs = Envars.xdg_dirs in
   let rocqpath = Envars.coqpath in
   (* NOTE: These directories are searched from last to first *)
-  (* first standard libraries *)
-  List.iter (fun { Boot.Env.physical_path; logical_path } ->
-      add_rec_path
-        ~unix_path:(Boot.Env.Path.to_string physical_path)
-        ~rocq_root:(dirpath_of_string logical_path))
-    standard_libraries;
-  (* then plugins *)
+  (* first plugins *)
   add_rec_path ~unix_path:plugins ~rocq_root:(Names.DirPath.make [rocq_root]);
-  (* then user-contrib *)
-  if Sys.file_exists user_contrib then
-    add_rec_path ~unix_path:user_contrib ~rocq_root:CheckLibrary.default_root_prefix;
   (* then directories in XDG_DATA_DIRS and XDG_DATA_HOME *)
   List.iter (fun s -> add_rec_path ~unix_path:s ~rocq_root:CheckLibrary.default_root_prefix)
     (xdg_dirs ~warn:(fun x -> Feedback.msg_warning (str x)));
@@ -222,7 +223,7 @@ let print_usage_channel co command =
 "\
 \n  -Q dir coqdir               map physical dir to logical coqdir\
 \n  -R dir coqdir               synonymous for -Q\
-\n  -coqlib dir                 set coqchk's standard library location\
+\n  -coqlib dir                 set the compatibility COQLIB directory\
 \n  -boot                       don't initialize the library paths automatically\
 \n\
 \n  -admit module               load module and dependencies without checking\
@@ -231,7 +232,7 @@ let print_usage_channel co command =
 \n  -d (d1,..,dn)               enable specified debug messages\
 \n  -debug                      enable all debug messages\
 \n  -profile file               output profiling info to file\
-\n  -where                      print coqchk's standard library location and exit\
+\n  -where                      print coqchk's compatibility COQLIB and exit\
 \n  -v, --version               print coqchk version and exit\
 \n  -o, --output-context        print the list of assumptions\
 \n  -axiom-free                 fail if axioms or unsafe features are used\
@@ -475,12 +476,13 @@ let init_with_argv argv =
         ~warn_ignored_coqlib:CWarnings.warn_ignored_coqlib
     in
     Flags.if_verbose (fun () -> print_header coqenv ()) ();
+    init_findlib coqenv;
     let () = match coqenv with
       | Boot -> ()
       | Env coqenv -> init_load_path coqenv
     in
     (* additional loadpath, given with -R/-Q options *)
-    resolve_packages ();
+    resolve_packages ~boot:!boot;
     NewProfile.profile "add_load_paths" (fun () ->
         List.iter
           (fun (unix_path, rocq_root) -> add_rec_path ~unix_path ~rocq_root)

@@ -37,15 +37,10 @@ let coqdep args =
   (* We don't setup any loadpath if the -boot is passed *)
   let () = match rocqenv with
     | Boot -> ()
-    | Env env ->
-    let corelib = Boot.Env.(corelib env |> Path.to_string) in
-    let user_contrib = Boot.Env.(user_contrib env |> Path.to_string) in
-    Loadpath.add_rec_dir_import (Loadpath.add_coqlib_known lst) corelib ["Corelib"];
-    if Sys.file_exists user_contrib then
-      Loadpath.add_rec_dir_no_import (Loadpath.add_coqlib_known lst) user_contrib [];
-    let add_dir s = Loadpath.add_rec_dir_no_import (Loadpath.add_coqlib_known lst) s [] in
-    List.iter add_dir (Envars.xdg_dirs ~warn:warn_home_dir);
-    List.iter add_dir (Envars.coqpath())
+    | Env _ ->
+      let add_dir s = Loadpath.add_rec_dir_no_import (Loadpath.add_coqlib_known lst) s [] in
+      List.iter add_dir (Envars.xdg_dirs ~warn:warn_home_dir);
+      List.iter add_dir (Envars.coqpath())
   in
   if args.Args.sort then
     sort st

@@ -25,23 +25,17 @@ The Rocq runtime enviroment needs to be properly initialized before use;
 we detail the rules below. It is recommended that applications requiring
 multiple accesses to the environment, do initialize it once and keep a ref
 to it. We don't forbid yet double initialization, (second time is a noop)
-but we may do so in the future. Rules for "coqlib" are:
+but we may do so in the future. Corelib and other Rocq theories are resolved
+as findlib packages and are not part of this environment. [ROCQLIB] and the
+[-coqlib] option are retained for compatibility queries and for locating an
+adjacent [rocq-runtime] package.
 
-- the [ROCQLIB] env variable will be used if set
-- both findlib-style roots containing [rocq.d/Init/Prelude.vo] and legacy
-  roots containing [theories/Init/Prelude.vo] are accepted
-- if [ROCQLIB] is not set, the findlib-style [rocq-core] package is preferred,
-  followed by the configured legacy locations
-- if none of the above succeeds, the initialization will fail
+The [ROCQRUNTIMELIB] environment variable is used if set. Otherwise, the
+[rocq-runtime] package is located relative to the executable. [ROCQLIB/plugins]
+is only used as a fallback for older developer layouts.
 
-- The [ROCQRUNTIMELIB] env variable is also used if set. Otherwise, the
-  [rocq-runtime] package is assumed to be next to the selected library root,
-  except if [ROCQLIB/plugins] exists as in some developer layouts, in which
-  case [ROCQRUNTIMELIB:=ROCQLIB].
-
-Note that [set_coqlib] is used by some commands to process the [-coqlib] option,
-as of now this sets both [coqlib] and [coqcorelib]; this part of the initialization
-will be eventually moved here.
+The compatibility library root does not participate in Rocq package
+resolution.
 
 The error handling policy of this module is simple for now: failing to
 initialize Rocq's env will produce a fatal error, and the application will exit with
@@ -72,13 +66,7 @@ module Path : sig
 
 end
 
-(** A physical standard-library root and its Rocq logical path. *)
-type standard_library =
-  { physical_path : Path.t
-  ; logical_path : string
-  }
-
-(** Rocq runtime enviroment, including location of Rocq's Corelib *)
+(** Rocq runtime environment. *)
 type t
 
 type maybe_env =
@@ -112,17 +100,8 @@ val print_queries_maybe_init : warn_ignored_coqlib:(unit -> unit) ->
   boot:bool -> coqlib:string option ->
   Usage.specific_usage option -> Usage.query list -> (maybe_env, string) result
 
-(** [Corelib directory] *)
-val corelib : t -> Path.t
-
 (** [plugins directory] *)
 val plugins : t -> Path.t
-
-(** [user contrib directory] *)
-val user_contrib : t -> Path.t
-
-(** Standard-library roots that are available without [-package]. *)
-val standard_libraries : t -> standard_library list
 
 (** [tool-specific directory] *)
 val tool : t -> string -> Path.t

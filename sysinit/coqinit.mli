@@ -42,8 +42,8 @@ val parse_arguments :
 
 (** 3 initialization of global runtime data
 
-    All global setup is done here, like ROCQLIB and the paths for native
-    compilation. If Coq is used to process multiple libraries, what is set up
+    All global setup is done here, such as runtime and native compilation
+    paths. If Coq is used to process multiple libraries, what is set up
     here is really global and common to all of them.
 
     This API must be called, typically jsut after parsing arguments. *)

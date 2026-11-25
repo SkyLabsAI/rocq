@@ -11,17 +11,6 @@
 open Util
 open Pp
 
-(* Recursively puts `.v` files in the LoadPath *)
-let build_standard_library_vo_path
-    { Boot.Env.physical_path; logical_path } =
-  let open Loadpath in
-  { unix_path = Boot.Env.Path.to_string physical_path
-  ; coq_path = Libnames.dirpath_of_string logical_path
-  ; implicit = true
-  ; recursive = true
-  ; installed = true
-  }
-
 let build_userlib_path ~unix_path =
   let open Loadpath in
   if Sys.file_exists unix_path then
@@ -39,7 +28,6 @@ let build_userlib_path ~unix_path =
 let init_load_path ~coqenv =
 
   let open Loadpath in
-  let user_contrib = Boot.Env.user_contrib coqenv |> Boot.Path.to_string in
   let xdg_dirs = Envars.xdg_dirs ~warn:(fun x -> Feedback.msg_warning (str x)) in
   let rocqpath = Envars.coqpath in
   (* ML includes *)
@@ -50,12 +38,6 @@ let init_load_path ~coqenv =
     then [Boot.Env.Path.(to_string (relative core_dir ".."))]
     else []
   in
-  let standard_libraries =
-    Boot.Env.standard_libraries coqenv
-    |> List.map build_standard_library_vo_path
-  in
-  let contrib_vo = build_userlib_path ~unix_path:user_contrib in
-
   let misc_vo =
     List.map (fun s -> build_userlib_path ~unix_path:s) (xdg_dirs @ (rocqpath())) in
 
@@ -68,12 +50,6 @@ let init_load_path ~coqenv =
       ; recursive = false
       ; installed = false (* not considered "installed" *)
       } ] @
-
-    (* then standard libraries *)
-    standard_libraries @
-
-    (* then user-contrib *)
-    contrib_vo @
 
     (* then directories in XDG_DATA_DIRS and XDG_DATA_HOME and ROCQPATH *)
     List.concat misc_vo

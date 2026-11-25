@@ -244,22 +244,11 @@ let add_rec_path ~unix_path ~rocq_root =
     Feedback.msg_warning (str "Cannot open " ++ str unix_path)
 
 let init_load_path_std env ~default_ml () =
-  let standard_libraries = Boot.Env.standard_libraries env in
-  let user_contrib = Boot.Env.user_contrib env |> Boot.Path.to_string in
   let xdg_dirs = Envars.xdg_dirs in
   let rocqpath = Envars.coqpath in
   let () = if default_ml then Nativelib.(include_dirs := default_include_dirs env) in
   (* NOTE: These directories are searched from last to first *)
-  (* first standard libraries *)
-  List.iter (fun { Boot.Env.physical_path; logical_path } ->
-      add_rec_path
-        ~unix_path:(Boot.Env.Path.to_string physical_path)
-        ~rocq_root:(Loadpath.dirpath_of_string logical_path))
-    standard_libraries;
-  (* then user-contrib *)
-  if Sys.file_exists user_contrib then
-    add_rec_path ~unix_path:user_contrib ~rocq_root:Loadpath.default_root_prefix;
-  (* then directories in XDG_DATA_DIRS and XDG_DATA_HOME *)
+  (* directories in XDG_DATA_DIRS and XDG_DATA_HOME *)
   List.iter (fun s -> add_rec_path ~unix_path:s ~rocq_root:Loadpath.default_root_prefix)
     (xdg_dirs ~warn:(fun x -> Feedback.msg_warning (str x)));
   (* then directories in ROCQPATH *)
@@ -298,7 +287,7 @@ let init_load_path { boot; coqlib; vo_path; ocamlfind_path; ml_path; packages } 
   (* always add current directory *)
   add_path ~unix_path:"." ~rocq_root:Loadpath.default_root_prefix;
   (* additional loadpath, given with -R/-Q/-package options *)
-  let packages = Rocq_package.resolve packages in
+  let packages = Rocq_package.resolve_for_rocq ~boot packages in
   List.iter (fun (p:Rocq_package.t) ->
       add_rec_path ~unix_path:p.dir ~rocq_root:(Loadpath.dirpath_of_string p.logpath))
     packages;
@@ -356,7 +345,7 @@ let print_usage_channel co command =
 \n\
 \n\
 \n  -boot                  boot mode\
-\n  -coqlib dir            set coqnative's standard library location\
+\n  -coqlib dir            set the compatibility COQLIB directory\
 \n  -native-output-dir     <directory> set the output directory for native objects\
 \n  -nI dir                OCaml include directories for the native compiler (default if not set) \
 \n\

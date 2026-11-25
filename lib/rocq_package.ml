@@ -14,6 +14,8 @@ type t = {
   logpath : string;
 }
 
+let core_package = "rocq-core"
+
 let resolve : string list -> t list = fun ps ->
   match ps with [] -> [] | _ ->
   let ps =
@@ -38,3 +40,10 @@ let resolve : string list -> t list = fun ps ->
     with Not_found -> None
   in
   List.filter_map query ps
+
+let resolve_for_rocq ~boot packages =
+  let packages =
+    if boot || List.mem core_package packages then packages
+    else core_package :: packages
+  in
+  resolve packages

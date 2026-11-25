@@ -29,7 +29,7 @@ let print_usage_common co command =
 \n  -package pkg           add the given Rocq (findlib) package to the load path\
 \n  -top coqdir            set the toplevel name to be coqdir instead of Top\
 \n  -topfile f             set the toplevel name as though compiling f\
-\n  -coqlib dir            set the coq standard library directory\
+\n  -coqlib dir            set the compatibility COQLIB directory\
 \n  -exclude-dir f         exclude subdirectories named f for option -R\
 \n\
 \n  -boot                  don't bind the `Corelib.` prefix to the default -coqlib dir\

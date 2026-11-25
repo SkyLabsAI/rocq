@@ -198,7 +198,10 @@ let init_document opts =
   (* this isn't in init_load_paths because processes (typically
      vscoqtop) are allowed to have states with differing vo paths (but
      not with differing -boot or ml paths) *)
-  let packages = Rocq_package.resolve opts.pre.packages in
+  let packages =
+    Rocq_package.resolve_for_rocq
+      ~boot:opts.pre.boot opts.pre.packages
+  in
   List.iter (fun p -> Loadpath.add_vo_path (package_vo_path p)) packages;
   List.iter (fun x -> Loadpath.add_vo_path @@ to_vo_path x) opts.pre.vo_includes;
 

@@ -8,9 +8,8 @@
 (*         *     (see LICENSE file for the text of the license)         *)
 (************************************************************************)
 
-(** Standard LoadPath for Rocq user libraries; in particular it
-   includes (in-order) Rocq's standard library, Rocq's [user-contrib]
-   folder, and directories specified in [ROCQPATH] and [XDG_DIRS] *)
+(** Initial load paths for Rocq runtime libraries and loose theories from
+    [ROCQPATH] and [XDG_DIRS]. Findlib packages are added separately. *)
 val init_load_path
   : coqenv:Boot.Env.t
   -> CUnix.physical_path list * Loadpath.vo_path list

@@ -22,3 +22,7 @@ type t = {
     their transitive dependencies. A user error is triggered if a package does
     not exist, or if a dependency loop is found. *)
 val resolve : string list -> t list
+
+(** [resolve_for_rocq ~boot ps] resolves [ps] as [resolve]. Outside boot mode,
+    [rocq-core] is implicitly included in the package set. *)
+val resolve_for_rocq : boot:bool -> string list -> t list
