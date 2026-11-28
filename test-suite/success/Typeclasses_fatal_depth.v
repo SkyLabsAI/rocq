@@ -45,3 +45,12 @@ Fail Definition x : A := _.
 Unset Typeclasses Fatal Depth.
 Set Typeclasses Depth 20.
 Definition x : A := _.
+
+(* Typeclasses Warn Depth reports deep searches, successful or not. *)
+Unset Typeclasses Depth.
+Set Typeclasses Warn Depth 50.
+Set Warnings "+typeclasses-deep-search".
+Goal Big2 40. Proof. apply _. Qed.
+Fail Definition y : Big2 60 := _.
+Set Warnings "-typeclasses-deep-search".
+Definition y : Big2 60 := _.

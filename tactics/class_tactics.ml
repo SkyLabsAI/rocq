@@ -53,6 +53,22 @@ let { Goptions.get = get_typeclasses_fatal_depth } =
     ~value:None
     ()
 
+(** When set to [Some n], warn about each resolution whose deepest branch
+    goes deeper than [n], reporting its depth. Meant to measure how deep
+    searches get, e.g. to choose [Typeclasses Fatal Depth]. *)
+let { Goptions.get = get_typeclasses_warn_depth } =
+  Goptions.declare_intopt_option_and_ref
+    ~key:["Typeclasses";"Warn";"Depth"]
+    ~value:None
+    ()
+
+let warn_deep_search =
+  CWarnings.create ~name:"typeclasses-deep-search"
+    ~category:CWarnings.CoreCategories.automation
+    (fun (depth, n) ->
+       strbrk "Typeclass resolution reached depth " ++ int depth ++
+       strbrk " (Typeclasses Warn Depth is " ++ int n ++ str ").")
+
 (** When this flag is enabled, the resolution of type classes tries to avoid
     useless introductions. This is no longer useful since we have eta, but is
     here for compatibility purposes. Another compatibility issues is that the
@@ -1037,16 +1053,21 @@ module Search = struct
   let intro info kont =
     Tactics.intro <*> intro_tac info kont
 
-  let rec search_tac hints limit depth =
+  (** [stats], when present, records the deepest level reached. *)
+  let rec search_tac hints limit stats depth =
     let kont info =
       Proofview.numgoals >>= fun i ->
       let () = ppdebug 1 (fun () ->
           str "calling eauto recursively at depth " ++ int (succ depth) ++
           str " on " ++ int i ++ str " subgoals")
       in
-      search_tac hints limit (succ depth) info
+      search_tac hints limit stats (succ depth) info
     in
     fun info ->
+    let () = match stats with
+      | Some r when depth > !r -> r := depth
+      | _ -> ()
+    in
     match info.search_fatal with
     | Some fatal when depth > fatal ->
       let exn = DepthExceeded (fatal, pr_trace info.search_trace) in
@@ -1066,6 +1087,8 @@ module Search = struct
 
   let search_tac mst only_classes best_effort dep hints depth =
     let fatal = get_typeclasses_fatal_depth () in
+    let warn = get_typeclasses_warn_depth () in
+    let stats = Option.map (fun _ -> ref 0) warn in
     let tac gls i =
       Proofview.Goal.enter begin fun gl ->
         let env = Proofview.Goal.env gl in
@@ -1074,13 +1097,29 @@ module Search = struct
         let ev = Proofview.Goal.goal gl in
         let dep = dep || Proofview.unifiable sigma ev gls in
         let info = make_autogoal env sigma mst only_classes dep (cut_of_hints hints) best_effort fatal i ev in
-        search_tac hints depth 1 info
+        search_tac hints depth stats 1 info
       end
     in
+    let search =
       Proofview.Unsafe.tclGETGOALS >>= fun gls ->
       let gls = CList.map Proofview.drop_state gls in
       let j = List.length gls in
       search_fixpoint ~best_effort ~allow_out_of_order:true (List.init j (fun i -> tac gls i))
+    in
+    match warn, stats with
+    | Some n, Some r ->
+      (* Report once, when the search first succeeds or fails. *)
+      let reported = ref false in
+      let report () =
+        if not !reported && !r > n then begin
+          reported := true;
+          warn_deep_search (!r, n)
+        end
+      in
+      Proofview.tclORELSE
+        (search >>= fun () -> report (); Proofview.tclUNIT ())
+        (fun (e, info) -> report (); Proofview.tclZERO ~info e)
+    | _ -> search
 
   let fix_iterative t =
     let rec aux depth =

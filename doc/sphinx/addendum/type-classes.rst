@@ -656,6 +656,14 @@ Settings
    :tacn:`first` and :tacn:`||` pass it on; tactics written in OCaml or Ltac2
    can still catch it.  The default is unbounded.
 
+.. opt:: Typeclasses Warn Depth @natural
+
+   This :term:`option` emits the warning ``typeclasses-deep-search`` for each
+   typeclass resolution whose deepest branch goes deeper than
+   :n:`@natural`, reporting the depth reached, including branches that
+   failed.  This helps choose a value for :opt:`Typeclasses Fatal Depth`.
+   The default is unbounded, which disables the warning.
+
 .. flag:: Typeclasses Debug
 
    Controls whether typeclass resolution steps are shown during search.  Setting this :term:`flag`
