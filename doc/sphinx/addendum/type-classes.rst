@@ -640,6 +640,29 @@ Settings
 
    This :term:`option` sets the maximum proof search depth.  The default is unbounded.
    :cmd:`Typeclasses eauto` is another way to set this option.
+   Reaching the limit fails only the current branch: proof search
+   backtracks and tries other instances.
+
+.. opt:: Typeclasses Fatal Depth @natural
+
+   This :term:`option` makes typeclass resolution fail with an error as soon
+   as a branch of the search goes deeper than :n:`@natural`, instead of
+   backtracking to other instances as with :opt:`Typeclasses Depth`.  The
+   error lists the goals on the offending branch and the instances that
+   produced them, which usually exposes a loop between instances.  This error
+   is reported both by :tacn:`typeclasses eauto` and by implicit resolution,
+   where it is not treated as an unresolved instance.  It is a tactic failure
+   of level 1000 (see :tacn:`fail`), so Ltac tactics such as :tacn:`try`,
+   :tacn:`first` and :tacn:`||` pass it on; tactics written in OCaml or Ltac2
+   can still catch it.  The default is unbounded.
+
+.. opt:: Typeclasses Warn Depth @natural
+
+   This :term:`option` emits the warning ``typeclasses-deep-search`` for each
+   typeclass resolution whose deepest branch goes deeper than
+   :n:`@natural`, reporting the depth reached, including branches that
+   failed.  This helps choose a value for :opt:`Typeclasses Fatal Depth`.
+   The default is unbounded, which disables the warning.
 
 .. flag:: Typeclasses Debug
 
