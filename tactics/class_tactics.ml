@@ -43,6 +43,16 @@ let { Goptions.get = get_typeclasses_depth } =
 let set_typeclasses_depth =
   Goptions.set_int_option_value typeclasses_depth_opt_name
 
+(** When set to [Some n], a resolution branch deeper than [n] aborts the
+    whole search with an error, instead of failing that branch and
+    backtracking like [Typeclasses Depth].
+    Meant to catch looping instances. *)
+let { Goptions.get = get_typeclasses_fatal_depth } =
+  Goptions.declare_intopt_option_and_ref
+    ~key:["Typeclasses";"Fatal";"Depth"]
+    ~value:None
+    ()
+
 (** When this flag is enabled, the resolution of type classes tries to avoid
     useless introductions. This is no longer useful since we have eta, but is
     here for compatibility purposes. Another compatibility issues is that the
@@ -516,6 +526,8 @@ module Search = struct
       search_cut : hints_path;
       search_hints : hint_db;
       search_best_effort : bool;
+      search_fatal : int option;
+      (** [Typeclasses Fatal Depth], read once per resolution. *)
       }
 
   (** Local hints *)
@@ -539,19 +551,57 @@ module Search = struct
       let hints = make_hints env sigma mst only_classes in
       autogoal_cache := (cwd, only_classes, sign, modes, hints, qvars); hints
 
-  let make_autogoal env sigma mst only_classes dep cut best_effort i =
+  let make_autogoal env sigma mst only_classes dep cut best_effort fatal i =
     let hints = make_autogoal_hints env sigma only_classes mst in
     { search_hints = hints;
       search_depth = [i];
       search_dep = dep;
       search_only_classes = only_classes;
       search_cut = cut;
-      search_best_effort = best_effort }
+      search_best_effort = best_effort;
+      search_fatal = fatal }
 
   (** In the proof engine failures are represented as exceptions *)
   exception ReachedLimit
   exception NoApplicableHint
   exception StuckGoal
+
+  (** Raised when a branch exceeds [Typeclasses Fatal Depth]. Unlike the
+      other failures above, every handler in this search passes it on
+      without trying alternatives (see [is_fatal]). *)
+  exception DepthExceeded of int * Pp.t
+
+  let is_fatal = function
+    | (DepthExceeded _, _) -> true
+    | _ -> false
+
+  (** Once out of the search, [DepthExceeded] becomes a tactic failure of
+      this Ltac level: high enough that [try], [first] and [||] around the
+      search pass it on instead of trying alternatives. Handlers written in
+      OCaml or Ltac2 can still catch it. *)
+  let fatal_depth_fail_level = 1000
+
+  let fatal_depth_failure e =
+    Tacticals.FailError (fatal_depth_fail_level, lazy (CErrors.print e))
+
+  let () = CErrors.register_handler begin function
+    | DepthExceeded (n, trace) ->
+      Some (str "Typeclass resolution exceeded Typeclasses Fatal Depth " ++
+            int n ++ str "; this is likely a loop between instances." ++ fnl () ++
+            trace)
+    | _ -> None
+    end
+
+  (** [t >>= f], except that a fatal failure of [f] does not backtrack
+      into further successes of [t]. *)
+  let rec bind_fatal t f =
+    let open Proofview.Notations in
+    Proofview.tclCASE t >>= function
+    | Error (e, info) -> Proofview.tclZERO ~info e
+    | Ok (x, k) ->
+      Proofview.tclOR (f x) (fun e ->
+          if is_fatal e then Proofview.tclZERO ~info:(snd e) (fst e)
+          else bind_fatal (k e) f)
 
   (** ReachedLimit has priority over NoApplicableHint to handle
       iterative deepening: it should fail when no hints are applicable,
@@ -671,7 +721,8 @@ module Search = struct
                 we backtrack to the next result of tac, etc.... Ultimately if none of the solutions
                 for tac work, we will come back to the failure continuation fk in one of
                 the above cases *)
-            fixpoint true tacs stuck (fun e -> tclCASE (fk' e) >>= kont)
+            fixpoint true tacs stuck (fun e ->
+                if is_fatal e then fk e else tclCASE (fk' e) >>= kont)
         in tclCASE tac >>= kont
       in
       tclEVARMAP >>= fun sigma ->
@@ -705,6 +756,7 @@ module Search = struct
               (fun (e, info) ->
                  let () = ppdebug 1 (fun () -> int (List.length stuck) ++ str " remaining goals left, no progress, calling continuation failed")
                  in
+                 if is_fatal (e, info) then tclZERO ~info e else
                  (* We keep the stuck goals to display to the user *)
                  if best_effort then
                    let stuckgls, failedgls = List.partition (fun (_, _, status, _) ->
@@ -812,7 +864,8 @@ module Search = struct
             search_only_classes = info.search_only_classes;
             search_hints = hints';
             search_cut = derivs;
-            search_best_effort = info.search_best_effort }
+            search_best_effort = info.search_best_effort;
+            search_fatal = info.search_fatal }
         in kont info' end
       in
       let rec result (shelf, ()) i k =
@@ -885,11 +938,17 @@ module Search = struct
             pr_depth (i :: info.search_depth) ++ str": running " ++ Lazy.force pp
             ++ str" on" ++ spc () ++ pr_ev sigma (Proofview.Goal.goal gl))
         in
+        let bind = match info.search_fatal with
+          | None -> (>>=)
+          | Some _ -> bind_fatal
+        in
         ortac
-             (with_shelf tac >>= fun s ->
-              incr idx; result s i None)
+             (bind (with_shelf tac) (fun s ->
+              incr idx; result s i None))
              (fun e' ->
-                (pr_error e'; aux (merge_exceptions e e') tl))
+                (pr_error e';
+                 if is_fatal e' then tclZERO ~info:(snd e') (fst e')
+                 else aux (merge_exceptions e e') tl))
     and aux e = function
       | tac :: tacs -> onetac e tac tacs
       | [] ->
@@ -950,23 +1009,39 @@ module Search = struct
       search_tac hints limit (succ depth) info
     in
     fun info ->
+    match info.search_fatal with
+    | Some fatal when depth > fatal ->
+      Proofview.Goal.enter begin fun gl ->
+        let sigma = Proofview.Goal.sigma gl in
+        let msg =
+          str "Goal at " ++ pr_depth info.search_depth ++ str ":" ++ spc () ++
+          pr_ev sigma (Proofview.Goal.goal gl) ++ fnl () ++
+          str "Set Typeclasses Debug to see the steps leading to it."
+        in
+        let info = Exninfo.reify () in
+        Proofview.tclZERO ~info (DepthExceeded (fatal, hov 2 msg))
+      end
+    | _ ->
     if Int.equal depth (succ limit) then
       let info = Exninfo.reify () in
       Proofview.tclZERO ~info ReachedLimit
     else
       Proofview.tclOR (hints_tac hints info kont)
-                      (fun e -> Proofview.tclOR (intro info kont)
-                      (fun e' -> let (e, info) = merge_exceptions e e' in
+                      (fun e -> if is_fatal e then Proofview.tclZERO ~info:(snd e) (fst e) else
+                        Proofview.tclOR (intro info kont)
+                      (fun e' -> let (e, info) =
+                                   if is_fatal e' then e' else merge_exceptions e e' in
                               Proofview.tclZERO ~info e))
 
   let search_tac mst only_classes best_effort dep hints depth =
+    let fatal = get_typeclasses_fatal_depth () in
     let tac gls i =
       Proofview.Goal.enter begin fun gl ->
         let env = Proofview.Goal.env gl in
         let sigma = Proofview.Goal.sigma gl in
         let i = succ i in
         let dep = dep || Proofview.unifiable sigma (Proofview.Goal.goal gl) gls in
-        let info = make_autogoal env sigma mst only_classes dep (cut_of_hints hints) best_effort i in
+        let info = make_autogoal env sigma mst only_classes dep (cut_of_hints hints) best_effort fatal i in
         search_tac hints depth 1 info
       end
     in
@@ -1082,7 +1157,12 @@ module Search = struct
     in
     let (), pv', _, unsafe, info =
       try Proofview.apply ~name ~poly env tac pv
-      with Logic_monad.TacticFailure _ -> raise Not_found
+      with
+      | Logic_monad.TacticFailure (DepthExceeded _ as e) ->
+        (* Not a resolution failure: resolve_all_evars must not turn it into
+           unresolved evars, which best-effort resolution would accept. *)
+        raise (fatal_depth_failure e)
+      | Logic_monad.TacticFailure _ -> raise Not_found
     in
     let () =
       ppdebug 1 (fun () ->
@@ -1152,8 +1232,13 @@ let typeclasses_eauto ?(only_classes=false)
   let modes = List.fold_left Modes.union Modes.empty modes in
   let depth = match depth with None -> get_typeclasses_depth () | Some l -> Some l in
   Proofview.tclIGNORE
-    (Search.eauto_tac (modes,st) ~only_classes ?strategy
-      ~best_effort ~depth ~dep:true dbs)
+    (Proofview.tclOR
+      (Search.eauto_tac (modes,st) ~only_classes ?strategy
+        ~best_effort ~depth ~dep:true dbs)
+      (function
+        | (Search.DepthExceeded _ as e, info) ->
+          Proofview.tclZERO ~info (Search.fatal_depth_failure e)
+        | (e, info) -> Proofview.tclZERO ~info e))
     (* Stuck goals can remain here, we could shelve them, but this way
        the user can use `solve [typeclasses eauto]` to  check there are
        no stuck goals remaining, or use [typeclasses eauto; shelve] himself. *)
