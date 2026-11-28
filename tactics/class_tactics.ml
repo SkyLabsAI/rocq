@@ -44,8 +44,8 @@ let set_typeclasses_depth =
   Goptions.set_int_option_value typeclasses_depth_opt_name
 
 (** When set to [Some n], a resolution branch deeper than [n] aborts the
-    whole search with an error, instead of failing that branch and
-    backtracking like [Typeclasses Depth].
+    whole search with an error and a trace of the goals along that branch,
+    instead of failing that branch and backtracking like [Typeclasses Depth].
     Meant to catch looping instances. *)
 let { Goptions.get = get_typeclasses_fatal_depth } =
   Goptions.declare_intopt_option_and_ref
@@ -528,6 +528,10 @@ module Search = struct
       search_best_effort : bool;
       search_fatal : int option;
       (** [Typeclasses Fatal Depth], read once per resolution. *)
+      search_trace : (unit -> Pp.t) list;
+      (** The goals on the path to this one, innermost first, printed only
+          when [search_fatal] fires. Left empty when [search_fatal] is
+          [None], so that the normal search allocates nothing for it. *)
       }
 
   (** Local hints *)
@@ -551,15 +555,20 @@ module Search = struct
       let hints = make_hints env sigma mst only_classes in
       autogoal_cache := (cwd, only_classes, sign, modes, hints, qvars); hints
 
-  let make_autogoal env sigma mst only_classes dep cut best_effort fatal i =
+  let make_autogoal env sigma mst only_classes dep cut best_effort fatal i gl =
     let hints = make_autogoal_hints env sigma only_classes mst in
+    let trace = match fatal with
+      | None -> []
+      | Some _ -> [fun () -> pr_ev sigma gl]
+    in
     { search_hints = hints;
       search_depth = [i];
       search_dep = dep;
       search_only_classes = only_classes;
       search_cut = cut;
       search_best_effort = best_effort;
-      search_fatal = fatal }
+      search_fatal = fatal;
+      search_trace = trace }
 
   (** In the proof engine failures are represented as exceptions *)
   exception ReachedLimit
@@ -588,9 +597,28 @@ module Search = struct
     | DepthExceeded (n, trace) ->
       Some (str "Typeclass resolution exceeded Typeclasses Fatal Depth " ++
             int n ++ str "; this is likely a loop between instances." ++ fnl () ++
+            str "Goals on the failing branch, outermost first:" ++ fnl () ++
             trace)
     | _ -> None
     end
+
+  (** Show the first [head] and last [tail] levels of a long trace, numbered
+      from the root (level 1). *)
+  let pr_trace trace =
+    let head = 10 and tail = 30 in
+    let entries = List.rev trace in
+    let n = List.length entries in
+    let pr from l =
+      prlist_with_sep fnl (fun x -> x)
+        (List.mapi (fun k f -> hov 2 (str "level " ++ int (from + k) ++ str ": " ++ f ())) l)
+    in
+    if n <= head + tail then v 0 (pr 1 entries)
+    else
+      let first = CList.firstn head entries in
+      let last = CList.skipn (n - tail) entries in
+      v 0 (pr 1 first ++ fnl () ++
+           str "... (" ++ int (n - head - tail) ++ str " levels elided) ..." ++
+           fnl () ++ pr (n - tail + 1) last)
 
   (** [t >>= f], except that a fatal failure of [f] does not backtrack
       into further successes of [t]. *)
@@ -858,14 +886,24 @@ module Search = struct
           else info.search_hints
         in
         let dep' = info.search_dep || Proofview.unifiable sigma' (Goal.goal gl') gls in
+        let depth' = succ j :: i :: info.search_depth in
+        let trace' = match info.search_fatal with
+          | None -> []
+          | Some _ ->
+            let ev' = Proofview.Goal.goal gl' in
+            (fun () -> pr_ev sigma' ev' ++
+                       spc () ++ str "(from " ++ Lazy.force pp ++ str ")")
+            :: info.search_trace
+        in
         let info' =
-          { search_depth = succ j :: i :: info.search_depth;
+          { search_depth = depth';
             search_dep = dep';
             search_only_classes = info.search_only_classes;
             search_hints = hints';
             search_cut = derivs;
             search_best_effort = info.search_best_effort;
-            search_fatal = info.search_fatal }
+            search_fatal = info.search_fatal;
+            search_trace = trace' }
         in kont info' end
       in
       let rec result (shelf, ()) i k =
@@ -1011,16 +1049,9 @@ module Search = struct
     fun info ->
     match info.search_fatal with
     | Some fatal when depth > fatal ->
-      Proofview.Goal.enter begin fun gl ->
-        let sigma = Proofview.Goal.sigma gl in
-        let msg =
-          str "Goal at " ++ pr_depth info.search_depth ++ str ":" ++ spc () ++
-          pr_ev sigma (Proofview.Goal.goal gl) ++ fnl () ++
-          str "Set Typeclasses Debug to see the steps leading to it."
-        in
-        let info = Exninfo.reify () in
-        Proofview.tclZERO ~info (DepthExceeded (fatal, hov 2 msg))
-      end
+      let exn = DepthExceeded (fatal, pr_trace info.search_trace) in
+      let info = Exninfo.reify () in
+      Proofview.tclZERO ~info exn
     | _ ->
     if Int.equal depth (succ limit) then
       let info = Exninfo.reify () in
@@ -1040,8 +1071,9 @@ module Search = struct
         let env = Proofview.Goal.env gl in
         let sigma = Proofview.Goal.sigma gl in
         let i = succ i in
-        let dep = dep || Proofview.unifiable sigma (Proofview.Goal.goal gl) gls in
-        let info = make_autogoal env sigma mst only_classes dep (cut_of_hints hints) best_effort fatal i in
+        let ev = Proofview.Goal.goal gl in
+        let dep = dep || Proofview.unifiable sigma ev gls in
+        let info = make_autogoal env sigma mst only_classes dep (cut_of_hints hints) best_effort fatal i ev in
         search_tac hints depth 1 info
       end
     in

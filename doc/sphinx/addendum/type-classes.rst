@@ -648,8 +648,8 @@ Settings
    This :term:`option` makes typeclass resolution fail with an error as soon
    as a branch of the search goes deeper than :n:`@natural`, instead of
    backtracking to other instances as with :opt:`Typeclasses Depth`.  The
-   error shows the goal at which the limit was reached; :flag:`Typeclasses
-   Debug` shows the steps leading to it.  This error
+   error lists the goals on the offending branch and the instances that
+   produced them, which usually exposes a loop between instances.  This error
    is reported both by :tacn:`typeclasses eauto` and by implicit resolution,
    where it is not treated as an unresolved instance.  It is a tactic failure
    of level 1000 (see :tacn:`fail`), so Ltac tactics such as :tacn:`try`,
